@@ -118,3 +118,51 @@ describe("storeApi", () => {
     );
   });
 });
+
+describe("contact submissions", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("posts contact details with the Google Maps location", async () => {
+    const payload = { id: 7, name: "An", phone: "0901234567", address: "Quận 1" };
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
+    vi.stubGlobal("fetch", fetch);
+    const contact = {
+      name: "An",
+      phone: "0901234567",
+      address: "Quận 1",
+      mapLocation: "https://maps.google.com/?q=10.7769,106.7009",
+    };
+
+    await expect(storeApi.createContact(contact)).resolves.toEqual(payload);
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/contacts",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(contact),
+      }),
+    );
+  });
+
+  it("lists and deletes contacts with admin authentication", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) });
+    vi.stubGlobal("fetch", fetch);
+
+    await storeApi.adminContacts("admin-jwt");
+    await storeApi.deleteContact("admin-jwt", 7);
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8080/api/v1/admin/contacts",
+      expect.objectContaining({ headers: { Authorization: "Bearer admin-jwt" } }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8080/api/v1/admin/contacts/7",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: { Authorization: "Bearer admin-jwt" },
+      }),
+    );
+  });
+});

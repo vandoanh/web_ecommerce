@@ -1,0 +1,12 @@
+SET NAMES utf8mb4;
+
+CREATE TABLE IF NOT EXISTS contacts (
+ id BIGINT NOT NULL AUTO_INCREMENT,
+ name VARCHAR(255) NOT NULL,
+ phone VARCHAR(32) NOT NULL,
+ address TEXT NOT NULL,
+ map_location TEXT NOT NULL,
+ created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY (id),
+ KEY contacts_created_idx (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
