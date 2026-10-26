@@ -1,0 +1,67 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: catalog
+      MYSQL_USER: catalog
+      MYSQL_PASSWORD: catalog
+      MYSQL_ROOT_PASSWORD: local-root-change-me
+    volumes:
+      - mysqldata:/var/lib/mysql
+      - ./backend/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -ucatalog -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  phpmyadmin:
+    image: phpmyadmin:5.2-apache
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 0
+    depends_on:
+      db: {condition: service_healthy}
+    ports: ["127.0.0.1:${PMA_PORT:-8082}:80"]
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    build: ./backend
+    environment:
+      PORT: 8080
+      DATABASE_URL: catalog:catalog@tcp(db:3306)/catalog?parseTime=true&charset=utf8mb4
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-change-me-0123456789}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-this-password}
+      CORS_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      UPLOAD_DIR: /uploads
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    ports: ["18080:8080"]
+    volumes: ["productuploads:/uploads"]
+  web:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:18080
+        NEXT_PUBLIC_SITE_URL: ${WEB_ORIGIN:-http://localhost:3000}
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+      NEXT_PUBLIC_SITE_URL: ${WEB_ORIGIN:-http://localhost:3000}
+      API_INTERNAL_URL: http://api:8080
+    depends_on: [api]
+    ports: ["${WEB_PORT:-3000}:3000"]
+volumes:
+  mysqldata:
+  redisdata:
+  productuploads:
