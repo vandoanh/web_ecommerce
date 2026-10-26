@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 type ClientMenuProps = {
-  current?: "home" | "products" | "about";
+  current?: "home" | "products" | "about" | "contact";
   onHomePage?: boolean;
 };
 
@@ -9,6 +9,7 @@ const menuItems = [
   { id: "home", label: "Trang chủ", href: "#home", pageHref: "/#home" },
   { id: "products", label: "Thực đơn", href: "#products", pageHref: "/#products" },
   { id: "about", label: "Về chúng tôi", href: "#about", pageHref: "/#about" },
+  { id: "contact", label: "Liên hệ", href: "/contact", pageHref: "/contact" },
 ] as const;
 
 export function ClientMenu({ current, onHomePage = false }: ClientMenuProps) {

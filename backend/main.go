@@ -27,6 +27,9 @@ var categoriesMigration string
 //go:embed migrations/004_product_images.sql
 var productImagesMigration string
 
+//go:embed migrations/005_contacts.sql
+var contactsMigration string
+
 type migration struct {
 	version string
 	name    string
@@ -43,6 +46,7 @@ func runMigrations(ctx context.Context, db *sql.DB) error {
 		{version: "002", name: "users", sql: usersMigration, tables: []string{"users", "roles", "groups", "user_roles", "user_groups"}},
 		{version: "003", name: "categories", sql: categoriesMigration, tables: []string{"categories", "product_categories"}},
 		{version: "004", name: "product images", sql: productImagesMigration, tables: []string{"product_images"}},
+		{version: "005", name: "contacts", sql: contactsMigration, tables: []string{"contacts"}},
 	}
 	for _, current := range migrations {
 		var applied bool
@@ -108,7 +112,8 @@ func main() {
 	authService := service.NewAuthService(cfg.JWTSecret, 30*time.Minute)
 	storeRepository := model.NewStoreModel(db)
 	cartRepository := model.NewRedisCartModel(redisClient)
-	router := route.SetupRouter(authRepository, storeRepository, cartRepository, authService, cfg.CORSOrigin)
+	contactRepository := model.NewContactModel(db)
+	router := route.SetupRouter(authRepository, storeRepository, cartRepository, contactRepository, authService, cfg.CORSOrigin)
 	server := http.Server{Addr: ":" + cfg.Port, Handler: router, ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("API listening on :%s", cfg.Port)
 	if err = server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

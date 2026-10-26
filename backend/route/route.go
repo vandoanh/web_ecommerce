@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(users repository.UserRepository, store repository.StoreRepository, carts repository.CartRepository, auth authservice.AuthService, corsOrigin string) *gin.Engine {
+func SetupRouter(users repository.UserRepository, store repository.StoreRepository, carts repository.CartRepository, contacts repository.ContactRepository, auth authservice.AuthService, corsOrigin string) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery(), cors(corsOrigin))
 	router.GET("/healthz", func(ctx *gin.Context) { ctx.JSON(http.StatusOK, gin.H{"status": "ok"}) })
@@ -22,12 +22,14 @@ func SetupRouter(users repository.UserRepository, store repository.StoreReposito
 	authController := controller.NewAuthController(users, auth)
 	storeController := controller.NewStoreController(store)
 	cartController := controller.NewCartController(carts)
+	contactController := controller.NewContactController(contacts)
 	api.POST("/auth/login", authController.LoginCustomer)
 	api.POST("/auth/register", authController.RegisterCustomer)
 	api.POST("/admin/auth/login", authController.LoginAdmin)
 	api.GET("/products", storeController.ListProducts)
 	api.GET("/products/:productID", storeController.GetProduct)
 	api.GET("/categories", storeController.ListCategories)
+	api.POST("/contacts", contactController.Create)
 	api.GET("/cart/:cartID", cartController.Get)
 	api.PUT("/cart/:cartID", cartController.Save)
 	api.DELETE("/cart/:cartID", cartController.Clear)
@@ -50,6 +52,8 @@ func SetupRouter(users repository.UserRepository, store repository.StoreReposito
 	admins.PUT("/categories/:categoryID", storeController.UpdateCategory)
 	admins.DELETE("/categories/:categoryID", storeController.DeleteCategory)
 	admins.GET("/orders", storeController.AdminOrders)
+	admins.GET("/contacts", contactController.List)
+	admins.DELETE("/contacts/:contactID", contactController.Delete)
 	admins.POST("/product-images", storeController.UploadProductImages)
 	uploadDir := storeController.UploadDir
 	if err := os.MkdirAll(uploadDir, 0755); err != nil {

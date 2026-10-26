@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/example/youtube-dashboard-go-next/backend/controller/mock"
+	"github.com/example/youtube-dashboard-go-next/backend/controller/repository"
 	"github.com/example/youtube-dashboard-go-next/backend/data"
 	"github.com/example/youtube-dashboard-go-next/backend/route"
 	"github.com/example/youtube-dashboard-go-next/backend/service"
@@ -63,8 +64,9 @@ func setupRouter() *gin.Engine {
 		SaveCartFunc:  func(context.Context, string, []data.CartItem) error { return nil },
 		ClearCartFunc: func(context.Context, string) error { return nil },
 	}
+	contacts := &mock.ContactRepositoryMock{}
 	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
-	return route.SetupRouter(users, store, carts, auth, "http://localhost:3000")
+	return route.SetupRouter(users, store, carts, contacts, auth, "http://localhost:3000")
 }
 
 func login(t *testing.T, router http.Handler, endpoint, username string) data.TokenResponse {
@@ -147,7 +149,7 @@ func TestCartRoutesValidateAndPersistCartItems(t *testing.T) {
 	users := &mock.UserRepositoryMock{}
 	store := &mock.StoreRepositoryMock{}
 	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
-	router := route.SetupRouter(users, store, carts, auth, "http://localhost:3000")
+	router := route.SetupRouter(users, store, carts, &mock.ContactRepositoryMock{}, auth, "http://localhost:3000")
 	cartID := "9d77cd79-d774-45d0-a960-566b94069386"
 	put := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPut, "/api/v1/cart/"+cartID, strings.NewReader(`{"items":[{"productId":3,"quantity":2}]}`))
@@ -167,5 +169,84 @@ func TestCartRoutesValidateAndPersistCartItems(t *testing.T) {
 	router.ServeHTTP(invalid, httptest.NewRequest(http.MethodGet, "/api/v1/cart/not-a-uuid", nil))
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("invalid cart ID should be rejected: %d", invalid.Code)
+	}
+}
+
+func TestContactRouteValidatesAndPersistsContact(t *testing.T) {
+	var saved data.CreateContactInput
+	contacts := &mock.ContactRepositoryMock{CreateContactFunc: func(_ context.Context, input data.CreateContactInput) (data.Contact, error) {
+		saved = input
+		return data.Contact{ID: 7, Name: input.Name, Phone: input.Phone, Address: input.Address, MapLocation: input.MapLocation}, nil
+	}}
+	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
+	router := route.SetupRouter(&mock.UserRepositoryMock{}, &mock.StoreRepositoryMock{}, &mock.CartRepositoryMock{}, contacts, auth, "http://localhost:3000")
+
+	invalid := httptest.NewRecorder()
+	invalidRequest := httptest.NewRequest(http.MethodPost, "/api/v1/contacts", strings.NewReader(`{"name":"An"}`))
+	invalidRequest.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(invalid, invalidRequest)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("incomplete contact should be rejected: %d", invalid.Code)
+	}
+
+	body := `{"name":" Nguyễn An ","phone":"0901234567","address":"12 Nguyễn Huệ, Quận 1","mapLocation":"https://maps.google.com/?q=10.7769,106.7009"}`
+	created := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/contacts", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(created, request)
+	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), `"id":7`) {
+		t.Fatalf("contact creation returned %d: %s", created.Code, created.Body)
+	}
+	if saved.Name != "Nguyễn An" || saved.Phone != "0901234567" || saved.MapLocation != "https://maps.google.com/?q=10.7769,106.7009" {
+		t.Fatalf("contact was not persisted correctly: %+v", saved)
+	}
+}
+
+func TestAdminContactRoutesListAndDelete(t *testing.T) {
+	var deleted int64
+	contacts := &mock.ContactRepositoryMock{
+		ListContactsFunc: func(context.Context) ([]data.Contact, error) {
+			return []data.Contact{{ID: 7, Name: "Nguyễn An", Phone: "0901234567", Address: "Quận 1", MapLocation: "https://maps.google.com/?q=10.7769,106.7009"}}, nil
+		},
+		DeleteContactFunc: func(_ context.Context, id int64) error {
+			if id != 7 {
+				return repository.ErrContactNotFound
+			}
+			deleted = id
+			return nil
+		},
+	}
+	users := &mock.UserRepositoryMock{FindUserFunc: func(username, password string) (*data.User, error) {
+		if username == "admin" && password == "correct-password" {
+			return &data.User{ID: 1, Username: username, Roles: []string{"admin"}, Groups: []string{"administrators"}}, nil
+		}
+		return nil, errors.New("invalid credentials")
+	}}
+	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
+	router := route.SetupRouter(users, &mock.StoreRepositoryMock{}, &mock.CartRepositoryMock{}, contacts, auth, "http://localhost:3000")
+	token := login(t, router, "/api/v1/admin/auth/login", "admin")
+
+	list := httptest.NewRecorder()
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/admin/contacts", nil)
+	listRequest.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	router.ServeHTTP(list, listRequest)
+	if list.Code != http.StatusOK || !strings.Contains(list.Body.String(), "Nguyễn An") {
+		t.Fatalf("admin contact list returned %d: %s", list.Code, list.Body)
+	}
+
+	remove := httptest.NewRecorder()
+	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/contacts/7", nil)
+	removeRequest.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	router.ServeHTTP(remove, removeRequest)
+	if remove.Code != http.StatusNoContent || deleted != 7 {
+		t.Fatalf("admin contact delete returned %d (deleted=%d)", remove.Code, deleted)
+	}
+
+	missing := httptest.NewRecorder()
+	missingRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/admin/contacts/99", nil)
+	missingRequest.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	router.ServeHTTP(missing, missingRequest)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing contact should return 404, got %d", missing.Code)
 	}
 }

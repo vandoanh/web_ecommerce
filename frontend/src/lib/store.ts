@@ -32,6 +32,15 @@ export type Order = {
 
 export type CartItem = { productId: number; quantity: number };
 
+export type ContactInput = {
+  name: string;
+  phone: string;
+  address: string;
+  mapLocation: string;
+};
+
+export type Contact = ContactInput & { id: number; createdAt: string };
+
 export type DashboardStats = {
   productCount: number;
   orderCount: number;
@@ -123,7 +132,7 @@ export const storeApi = {
       method: "POST",
       body: formData,
     });
-    return result.items.map((path) => path.startsWith("http") ? path : `${apiURL}${path}`);
+    return result.items.map((path) => (path.startsWith("http") ? path : `${apiURL}${path}`));
   },
   createOrder: (
     token: string,
@@ -137,4 +146,12 @@ export const storeApi = {
   customerOrders: (token: string) => request<{ items: Order[] }>("/api/v1/orders", token),
   adminOrders: (token: string) => request<{ items: Order[] }>("/api/v1/admin/orders", token),
   dashboard: (token: string) => request<DashboardStats>("/api/v1/admin/dashboard", token),
+  createContact: (contact: ContactInput) =>
+    request<Contact>("/api/v1/contacts", undefined, {
+      method: "POST",
+      body: JSON.stringify(contact),
+    }),
+  adminContacts: (token: string) => request<{ items: Contact[] }>("/api/v1/admin/contacts", token),
+  deleteContact: (token: string, id: number) =>
+    request<void>(`/api/v1/admin/contacts/${id}`, token, { method: "DELETE" }),
 };

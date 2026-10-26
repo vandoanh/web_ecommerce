@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import "@/app/admin/admin.css";
 
 type AdminShellProps = {
-  active: "overview" | "products" | "categories" | "orders";
+  active: "overview" | "products" | "categories" | "orders" | "contacts";
   title: string;
   description: string;
   toolbar?: ReactNode;
@@ -60,6 +60,12 @@ export function AdminShell({ active, title, description, toolbar, children }: Ad
               <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v14.25H5.25V6A2.25 2.25 0 0 1 7.5 3.75Zm2.25 0V2.25h4.5v1.5m-6 6h7.5m-7.5 3.75h7.5m-7.5 3.75h4.5" />
             </svg>
             <span>Đơn hàng</span>
+          </Link>
+          <Link className={active === "contacts" ? "selected" : ""} href="/admin/contacts">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 5.25h16.5v13.5H3.75zm0 3.75h16.5M7.5 13.5h4.5m-4.5 3h7.5" />
+            </svg>
+            <span>Liên hệ</span>
           </Link>
         </nav>
         <button className="admin-logout" onClick={logout}>
