@@ -15,6 +15,8 @@ type AuthController struct {
 	authService    authservice.AuthService
 }
 
+const authTokenExpiresInSeconds int64 = 30 * 60
+
 func NewAuthController(repo repository.UserRepository, auth authservice.AuthService) *AuthController {
 	registrar, _ := repo.(authservice.UserRegistrar)
 	return &AuthController{userRepository: repo, userRegistrar: registrar, authService: auth}
@@ -66,7 +68,12 @@ func (c *AuthController) respondWithToken(ctx *gin.Context, user data.User) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not issue token"})
 		return
 	}
-	ctx.JSON(http.StatusOK, data.TokenResponse{AccessToken: token, TokenType: "Bearer", ExpiresIn: 1800, User: user})
+	ctx.JSON(http.StatusOK, data.TokenResponse{
+		AccessToken: token,
+		TokenType:   "Bearer",
+		ExpiresIn:   authTokenExpiresInSeconds,
+		User:        user,
+	})
 }
 
 func hasRole(user data.User, role string) bool {
