@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,139 @@ func login(t *testing.T, router http.Handler, endpoint, username string) data.To
 		t.Fatalf("missing access token: %v", err)
 	}
 	return token
+}
+
+func TestAuthLoginJSONResponseContract(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint string
+		username string
+		user     map[string]any
+	}{
+		{
+			name:     "customer login",
+			endpoint: "/api/v1/auth/login",
+			username: "customer",
+			user: map[string]any{
+				"id": float64(10), "username": "customer", "email": "",
+				"roles": []any{"customer"}, "groups": []any{"customers"},
+			},
+		},
+		{
+			name:     "admin login",
+			endpoint: "/api/v1/admin/auth/login",
+			username: "admin",
+			user: map[string]any{
+				"id": float64(1), "username": "admin", "email": "",
+				"roles": []any{"admin"}, "groups": []any{"administrators"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, tt.endpoint, strings.NewReader(`{"username":"`+tt.username+`","password":"correct-password"}`))
+			request.Header.Set("Content-Type", "application/json")
+			setupRouter().ServeHTTP(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("login returned %d: %s", response.Code, response.Body)
+			}
+			var body map[string]json.RawMessage
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode login JSON: %v; body=%s", err, response.Body)
+			}
+			wantKeys := []string{"accessToken", "tokenType", "expiresIn", "user"}
+			if len(body) != len(wantKeys) {
+				t.Fatalf("unexpected top-level JSON keys (want exactly %v): %s", wantKeys, response.Body)
+			}
+			for _, key := range wantKeys {
+				if _, ok := body[key]; !ok {
+					t.Errorf("response is missing JSON key %q: %s", key, response.Body)
+				}
+			}
+
+			var accessToken string
+			if err := json.Unmarshal(body["accessToken"], &accessToken); err != nil || accessToken == "" {
+				t.Errorf("accessToken should be a non-empty string, got %s (err=%v)", body["accessToken"], err)
+			}
+			var tokenType string
+			if err := json.Unmarshal(body["tokenType"], &tokenType); err != nil || tokenType != "Bearer" {
+				t.Errorf("tokenType should be Bearer, got %s (err=%v)", body["tokenType"], err)
+			}
+			var expiresIn int
+			if err := json.Unmarshal(body["expiresIn"], &expiresIn); err != nil || expiresIn != 1800 {
+				t.Errorf("expiresIn should be 1800, got %s (err=%v)", body["expiresIn"], err)
+			}
+			var user map[string]any
+			if err := json.Unmarshal(body["user"], &user); err != nil {
+				t.Fatalf("decode user JSON: %v; user=%s", err, body["user"])
+			}
+			if len(user) != len(tt.user) {
+				t.Errorf("unexpected user JSON shape (want keys from fixture %v): %s", tt.user, body["user"])
+			}
+			for key, want := range tt.user {
+				if got, ok := user[key]; !ok || !reflect.DeepEqual(got, want) {
+					t.Errorf("user.%s = %#v, want %#v", key, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestRegisterJSONResponseContract(t *testing.T) {
+	users := &mock.UserRepositoryMock{
+		FindUserFunc: func(string, string) (*data.User, error) { return nil, errors.New("unexpected login") },
+		RegisterFunc: func(_ context.Context, input data.RegisterInput) (*data.User, error) {
+			return &data.User{ID: 20, Username: input.Username, Email: input.Email, Roles: []string{"customer"}, Groups: []string{"customers"}}, nil
+		},
+	}
+	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
+	router := route.SetupRouter(users, &mock.StoreRepositoryMock{}, &mock.CartRepositoryMock{}, &mock.ContactRepositoryMock{}, auth, "http://localhost:3000")
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"new-customer","email":"new@example.com","password":"correct-password"}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("register returned %d: %s", response.Code, response.Body)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode register JSON: %v; body=%s", err, response.Body)
+	}
+	wantKeys := []string{"accessToken", "tokenType", "expiresIn", "user"}
+	if len(body) != len(wantKeys) {
+		t.Fatalf("unexpected top-level JSON keys (want exactly %v): %s", wantKeys, response.Body)
+	}
+	for _, key := range wantKeys {
+		if _, ok := body[key]; !ok {
+			t.Errorf("response is missing JSON key %q: %s", key, response.Body)
+		}
+	}
+	var accessToken, tokenType string
+	var expiresIn int
+	if err := json.Unmarshal(body["accessToken"], &accessToken); err != nil || accessToken == "" {
+		t.Errorf("accessToken should be a non-empty string, got %s (err=%v)", body["accessToken"], err)
+	}
+	if err := json.Unmarshal(body["tokenType"], &tokenType); err != nil || tokenType != "Bearer" {
+		t.Errorf("tokenType should be Bearer, got %s (err=%v)", body["tokenType"], err)
+	}
+	if err := json.Unmarshal(body["expiresIn"], &expiresIn); err != nil || expiresIn != 1800 {
+		t.Errorf("expiresIn should be 1800, got %s (err=%v)", body["expiresIn"], err)
+	}
+	var user map[string]any
+	if err := json.Unmarshal(body["user"], &user); err != nil {
+		t.Fatalf("decode user JSON: %v; user=%s", err, body["user"])
+	}
+	wantUser := map[string]any{
+		"id": float64(20), "username": "new-customer", "email": "new@example.com",
+		"roles": []any{"customer"}, "groups": []any{"customers"},
+	}
+	if !reflect.DeepEqual(user, wantUser) {
+		t.Errorf("user = %#v, want %#v", user, wantUser)
+	}
 }
 
 func TestStoreProductsAndRoleRestrictedRoutes(t *testing.T) {

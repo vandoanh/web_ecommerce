@@ -1,7 +1,7 @@
 "use client";
 
 import DOMPurify from "dompurify";
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 
 type SafeHtmlProps = {
   html: string;
@@ -9,11 +9,7 @@ type SafeHtmlProps = {
 };
 
 export function SafeHtml({ html, className }: SafeHtmlProps) {
-  const [safeHtml, setSafeHtml] = useState("");
-
-  useEffect(() => {
-    setSafeHtml(DOMPurify.sanitize(html));
-  }, [html]);
+  const safeHtml = useMemo(() => DOMPurify.sanitize(html), [html]);
 
   return <div className={className} dangerouslySetInnerHTML={{ __html: safeHtml }} />;
 }
