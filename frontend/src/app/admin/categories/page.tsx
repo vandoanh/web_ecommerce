@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AdminShell } from "@/components/AdminShell";
 import { useAuth } from "@/hooks/useAuth";
-import { storeApi, type Category, type Product } from "@/lib/store";
+import { storeApi, type Category } from "@/lib/store";
 
 export default function AdminCategoriesPage() {
   const router = useRouter();
@@ -15,37 +16,37 @@ export default function AdminCategoriesPage() {
     redirectTo: "/admin",
     logoutTo: "/admin/login",
   });
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState("");
 
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    try {
+  const {
+    data,
+    error: queryError,
+    isLoading: loading,
+    refetch: refresh,
+  } = useQuery({
+    queryKey: ["admin", "categories", token],
+    enabled: Boolean(token),
+    queryFn: async () => {
+      if (!token) throw new Error("Cần đăng nhập để tải danh mục.");
       const [categoryList, productList] = await Promise.all([
         storeApi.categories(),
         storeApi.adminProducts(token),
       ]);
-      setCategories(categoryList.items);
-      setProducts(productList.items);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không tải được dữ liệu danh mục.");
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+      return { categories: categoryList.items, products: productList.items };
+    },
+  });
+  const categories = data?.categories ?? [];
+  const products = data?.products ?? [];
+  const error = queryError instanceof Error
+    ? queryError.message
+    : queryError
+      ? "Không tải được dữ liệu danh mục."
+      : "";
 
   useEffect(() => {
     if (ready && !token) router.replace("/admin/login");
   }, [ready, router, token]);
-
-  useEffect(() => {
-    if (token) void refresh();
-  }, [refresh, token]);
 
   async function deleteCategory(category: Category) {
     if (
@@ -54,14 +55,14 @@ export default function AdminCategoriesPage() {
         `Xóa danh mục “${category.name}”? Sản phẩm sẽ được giữ lại nhưng bỏ liên kết danh mục này.`,
       )
     ) return;
-    setError("");
+    setActionError("");
     setNotice("");
     try {
       await storeApi.deleteCategory(token, category.id);
       setNotice("Đã xóa danh mục và các liên kết sản phẩm.");
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không xóa được danh mục.");
+      setActionError(reason instanceof Error ? reason.message : "Không xóa được danh mục.");
     }
   }
 
@@ -73,7 +74,7 @@ export default function AdminCategoriesPage() {
       title="Quản lý danh mục"
       description="Tổ chức thực đơn và gán sản phẩm vào nhiều danh mục."
     >
-      {error && <p className="admin-alert" role="alert">{error}</p>}
+      {(error || actionError) && <p className="admin-alert" role="alert">{actionError || error}</p>}
       {notice && <p className="admin-success" role="status">{notice}</p>}
       <article className="admin-panel admin-management-list">
         <header>

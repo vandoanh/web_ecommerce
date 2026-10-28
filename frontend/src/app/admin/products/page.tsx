@@ -3,7 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AdminShell } from "@/components/AdminShell";
 import { useAuth } from "@/hooks/useAuth";
 import { storeApi, type Product } from "@/lib/store";
@@ -19,43 +20,42 @@ export default function AdminProductsPage() {
     redirectTo: "/admin",
     logoutTo: "/admin/login",
   });
-  const [products, setProducts] = useState<Product[]>([]);
-  const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState("");
 
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    try {
-      const result = await storeApi.adminProducts(token);
-      setProducts(result.items);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không tải được danh sách sản phẩm.");
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+  const {
+    data: products = [],
+    error: queryError,
+    isLoading: loading,
+    refetch: refresh,
+  } = useQuery({
+    queryKey: ["admin", "products", token],
+    enabled: Boolean(token),
+    queryFn: async () => {
+      if (!token) throw new Error("Cần đăng nhập để tải sản phẩm.");
+      return (await storeApi.adminProducts(token)).items;
+    },
+  });
+  const error = queryError instanceof Error
+    ? queryError.message
+    : queryError
+      ? "Không tải được danh sách sản phẩm."
+      : "";
 
   useEffect(() => {
     if (ready && !token) router.replace("/admin/login");
   }, [ready, router, token]);
 
-  useEffect(() => {
-    if (token) void refresh();
-  }, [refresh, token]);
-
   async function deleteProduct(product: Product) {
     if (!token || !window.confirm(`Xóa sản phẩm “${product.name}”?`)) return;
-    setError("");
+    setActionError("");
     setNotice("");
     try {
       await storeApi.deleteProduct(token, product.id);
       setNotice("Đã xóa sản phẩm.");
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không xóa được sản phẩm.");
+      setActionError(reason instanceof Error ? reason.message : "Không xóa được sản phẩm.");
     }
   }
 
@@ -67,7 +67,7 @@ export default function AdminProductsPage() {
       title="Quản lý sản phẩm"
       description="Tạo, cập nhật, phân loại và xóa sản phẩm."
     >
-      {error && <p className="admin-alert" role="alert">{error}</p>}
+      {(error || actionError) && <p className="admin-alert" role="alert">{actionError || error}</p>}
       {notice && <p className="admin-success" role="status">{notice}</p>}
       <article className="admin-panel admin-management-list">
         <header>

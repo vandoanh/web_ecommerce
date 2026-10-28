@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { AdminShell } from "@/components/AdminShell";
 import { useAuth } from "@/hooks/useAuth";
-import { storeApi, type Order } from "@/lib/store";
+import { storeApi } from "@/lib/store";
 
 const money = (amount: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND" }).format(amount);
@@ -31,33 +32,26 @@ export default function AdminOrdersPage() {
     redirectTo: "/admin",
     logoutTo: "/admin/login",
   });
-  const [orders, setOrders] = useState<Order[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    setError("");
-    try {
-      const result = await storeApi.adminOrders(token);
-      setOrders(result.items);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không tải được danh sách đơn hàng.");
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+  const {
+    data: orders = [],
+    error,
+    isLoading: loading,
+    refetch: refresh,
+  } = useQuery({
+    queryKey: ["admin", "orders", token],
+    enabled: Boolean(token),
+    queryFn: async () => {
+      if (!token) throw new Error("Cần đăng nhập để tải đơn hàng.");
+      return (await storeApi.adminOrders(token)).items;
+    },
+  });
 
   useEffect(() => {
     if (ready && !token) router.replace("/admin/login");
   }, [ready, router, token]);
-
-  useEffect(() => {
-    if (token) void refresh();
-  }, [refresh, token]);
 
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("vi");
@@ -87,7 +81,11 @@ export default function AdminOrdersPage() {
       description="Theo dõi đơn hàng, thông tin giao nhận và sản phẩm khách đã đặt."
       toolbar={<button className="admin-toolbar-button" type="button" onClick={() => void refresh()}>↻ Làm mới</button>}
     >
-      {error && <p className="admin-alert" role="alert">{error}</p>}
+      {error && (
+        <p className="admin-alert" role="alert">
+          {error instanceof Error ? error.message : "Không tải được danh sách đơn hàng."}
+        </p>
+      )}
       <article className="admin-panel admin-orders-panel">
         <header>
           <div>

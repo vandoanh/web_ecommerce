@@ -46,6 +46,8 @@ export default function EditProductPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const productId = Number(id);
+  const invalidProductId = !Number.isSafeInteger(productId) || productId < 1;
 
   useEffect(() => {
     if (ready && !token) router.replace("/admin/login");
@@ -53,12 +55,7 @@ export default function EditProductPage() {
 
   useEffect(() => {
     if (!token) return;
-    const productId = Number(id);
-    if (!Number.isSafeInteger(productId) || productId < 1) {
-      setError("Mã sản phẩm không hợp lệ.");
-      setLoading(false);
-      return;
-    }
+    if (invalidProductId) return;
 
     let canceled = false;
     Promise.all([storeApi.adminProducts(token), storeApi.categories()])
@@ -93,7 +90,7 @@ export default function EditProductPage() {
     return () => {
       canceled = true;
     };
-  }, [id, token]);
+  }, [invalidProductId, productId, token]);
 
   async function saveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,14 +118,17 @@ export default function EditProductPage() {
 
   if (!ready || !token) return <main className="admin-loading">Đang kiểm tra quyền truy cập…</main>;
 
+  const displayedError = invalidProductId ? "Mã sản phẩm không hợp lệ." : error;
+  const isLoading = !invalidProductId && loading;
+
   return (
     <AdminShell
       active="products"
       title="Sửa sản phẩm"
       description={product ? `Cập nhật thông tin cho ${product.name}.` : "Cập nhật thông tin sản phẩm."}
     >
-      {error && <p className="admin-alert" role="alert">{error}</p>}
-      {loading ? (
+      {displayedError && <p className="admin-alert" role="alert">{displayedError}</p>}
+      {isLoading ? (
         <p className="admin-panel">Đang tải sản phẩm…</p>
       ) : product ? (
         <article className="admin-panel admin-product-editor">

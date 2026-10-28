@@ -34,18 +34,15 @@ export default function EditCategoryPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const categoryId = Number(id);
+  const invalidCategoryId = !Number.isSafeInteger(categoryId) || categoryId < 1;
 
   useEffect(() => {
     if (ready && !token) router.replace("/admin/login");
   }, [ready, router, token]);
 
   useEffect(() => {
-    const categoryId = Number(id);
-    if (!Number.isSafeInteger(categoryId) || categoryId < 1) {
-      setError("Mã danh mục không hợp lệ.");
-      setLoading(false);
-      return;
-    }
+    if (invalidCategoryId) return;
 
     let canceled = false;
     storeApi.categories()
@@ -68,7 +65,7 @@ export default function EditCategoryPage() {
     return () => {
       canceled = true;
     };
-  }, [id]);
+  }, [categoryId, invalidCategoryId]);
 
   async function saveCategory(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -91,14 +88,17 @@ export default function EditCategoryPage() {
 
   if (!ready || !token) return <main className="admin-loading">Đang kiểm tra quyền truy cập…</main>;
 
+  const displayedError = invalidCategoryId ? "Mã danh mục không hợp lệ." : error;
+  const isLoading = !invalidCategoryId && loading;
+
   return (
     <AdminShell
       active="categories"
       title="Sửa danh mục"
       description={category ? `Cập nhật thông tin cho ${category.name}.` : "Cập nhật thông tin danh mục."}
     >
-      {error && <p className="admin-alert" role="alert">{error}</p>}
-      {loading ? (
+      {displayedError && <p className="admin-alert" role="alert">{displayedError}</p>}
+      {isLoading ? (
         <p className="admin-panel">Đang tải danh mục…</p>
       ) : category ? (
         <article className="admin-panel admin-category-editor">
