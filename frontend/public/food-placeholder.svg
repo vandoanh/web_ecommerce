@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" role="img" aria-labelledby="title desc">
+  <title id="title">Ảnh minh họa thay thế</title>
+  <desc id="desc">Hình minh họa tạm, cần thay bằng ảnh sản phẩm được cấp quyền.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f7e8d6" />
+      <stop offset="1" stop-color="#e8c5a5" />
+    </linearGradient>
+  </defs>
+  <rect width="900" height="700" fill="url(#paper)" />
+  <circle cx="450" cy="330" r="206" fill="#fffaf4" stroke="#d9b596" stroke-width="3" />
+  <circle cx="450" cy="330" r="174" fill="#f6eee5" stroke="#e7d5c3" stroke-width="2" />
+  <path d="M326 350c52-91 196-91 248 0-52 81-196 81-248 0Z" fill="#e3c1a0" />
+  <path d="M347 345c40-51 116-67 194-2" fill="none" stroke="#b78358" stroke-width="14" stroke-linecap="round" />
+  <text x="450" y="585" fill="#713e2b" font-family="Arial, sans-serif" font-size="27" font-weight="700" text-anchor="middle">ẢNH MINH HỌA · CẦN THAY THẾ</text>
+</svg>

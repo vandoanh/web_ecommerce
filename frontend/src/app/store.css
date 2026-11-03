@@ -815,10 +815,10 @@
 .store-home {
   --food-ink: #211d1a;
   --food-muted: #756c65;
-  --food-accent: #dc4b29;
-  --food-accent-dark: #b9371d;
+  --food-accent: #a9482d;
+  --food-accent-dark: #843a26;
   --food-cream: #fff8ef;
-  --food-line: #eee5dc;
+  --food-line: #eadfd5;
   overflow: hidden;
   background: #fffdfa;
   color: var(--food-ink);
@@ -1278,6 +1278,21 @@
   height: 245px;
   background: #f6eee6;
 }
+.store-image-illustrative-label {
+  position: absolute;
+  z-index: 2;
+  right: 9px;
+  bottom: 9px;
+  max-width: calc(100% - 18px);
+  border-radius: 3px;
+  padding: 5px 7px;
+  background: #272d27d9;
+  color: #fff;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
 .store-menu-card .store-product-tag,
 .store-menu-card .store-stock-tag {
   position: absolute;
@@ -1335,6 +1350,20 @@
   background: #fff7f1;
   color: var(--food-accent);
   font-size: 9px;
+}
+.store-home :where(a, button, [tabindex="0"], input, textarea):focus-visible,
+.store-product-detail-page :where(a, button, [tabindex="0"], input, textarea):focus-visible {
+  outline: 3px solid #b34d30;
+  outline-offset: 3px;
+}
+.store-checkout-cod {
+  margin: 14px 0;
+  border-radius: 5px;
+  background: #fff5e9;
+  padding: 12px 14px;
+  color: #713e2b;
+  font-size: 12px;
+  font-weight: 700;
 }
 .store-home .store-menu-card .store-add-button:hover {
   border-color: var(--food-accent);
@@ -1737,8 +1766,8 @@
   position: absolute;
   top: 50%;
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 48px;
+  height: 48px;
   place-items: center;
   transform: translateY(-50%);
   border: 0;
@@ -1774,13 +1803,27 @@
   padding: 12px 2px 3px;
 }
 .store-product-thumbnails button {
-  flex: 0 0 82px;
+  flex: 0 0 88px;
+  min-height: 70px;
   overflow: hidden;
   border: 2px solid transparent;
   border-radius: 9px;
   background: #f0e8df;
   padding: 0;
   cursor: pointer;
+}
+.store-product-detail-page :where(a, button, [tabindex="0"]):focus-visible {
+  outline: 3px solid #a9482d;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .store-home *,
+  .store-product-detail-page * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 .store-product-thumbnails button.active {
   border-color: #a9482d;

@@ -12,6 +12,10 @@ This QA plan accompanies the integrated checkout/orders changes on `feature/chec
 - Customer cancellation is allowed only while pending. Admin cancellation is allowed while pending or processing. The successful transition restores reserved stock exactly once, transactionally with the state change; repeated cancellation is an idempotent no-op. Terminal/unsupported transitions return a conflict and leave order and stock unchanged.
 - Customer order reads are limited to the authenticated customer; admin order operations require the admin role. Unauthenticated, wrong-role, and cross-customer access are denied.
 
+## Product SKU contract
+
+The frontend treats SKU as a server-provided string and does not mandate its exact syntax. Use `<server-generated-alphanumeric-code>` as a placeholder in examples until the format is approved. `TK` followed by 10 alphanumeric characters is only an illustrative recommendation, not an agreed contract; obtain explicit product/backend owner approval before implementing or enforcing that format.
+
 ## Safe database test gate (mandatory)
 
 Never point tests at the normal development or production database. Provision a disposable MySQL server isolated from all non-test systems, and use a dedicated disposable schema per suite. Both suites require `CHECKOUT_MYSQL_TEST_ISOLATED=1` plus a suite-specific DSN:
