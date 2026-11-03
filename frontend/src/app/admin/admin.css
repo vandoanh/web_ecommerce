@@ -1053,3 +1053,51 @@
   cursor: wait;
   opacity: 0.6;
 }
+
+.admin-field-hint {
+  color: #6c757d;
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.admin-price-secondary {
+  display: block;
+  margin-top: 4px;
+  color: #6c757d;
+  font-size: 10px;
+  line-height: 1.35;
+}
+.admin-stock-panel {
+  margin-top: 16px;
+  border-top-color: #198754;
+}
+.admin-stock-panel .admin-management-form {
+  padding: 0;
+}
+.admin-stock-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.admin-stock-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  border: 1px solid #dce1e7;
+  border-radius: 4px;
+  background: #f8f9fa;
+  padding: 10px 12px;
+}
+.admin-stock-summary span {
+  color: #6c757d;
+  font-size: 10px;
+}
+.admin-stock-summary strong {
+  color: #212529;
+  font-size: 20px;
+  font-weight: 600;
+}
+.admin-delivery-editor {
+  max-width: 900px;
+}

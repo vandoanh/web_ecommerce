@@ -9,6 +9,19 @@ import (
 
 var ErrProductNotFound = errors.New("product not found")
 var ErrCategoryNotFound = errors.New("category not found")
+var ErrSKUConflict = errors.New("SKU already exists")
+var ErrInvalidProductInput = errors.New("invalid product input")
+var ErrInvalidDiscountSchedule = errors.New("invalid discount schedule")
+var ErrProductHasStockHistory = errors.New("product has stock adjustment history and cannot be deleted")
+
+var ErrInvalidStockAdjustment = errors.New("invalid stock adjustment")
+var ErrInsufficientStock = errors.New("stock adjustment would make stock negative")
+var ErrStockOverflow = errors.New("stock adjustment exceeds the supported stock range")
+var ErrStockIdempotencyConflict = errors.New("stock adjustment idempotency key was already used with a different request")
+
+var ErrDeliverySettingsNotFound = errors.New("delivery settings not found")
+var ErrDeliveryVersionConflict = errors.New("delivery settings version conflict")
+var ErrInvalidDeliverySettings = errors.New("invalid delivery settings")
 
 var ErrProductUnavailable = errors.New("one or more products are unavailable or out of stock")
 var ErrIdempotencyConflict = errors.New("idempotency key was already used with a different request")
@@ -28,6 +41,9 @@ type StoreRepository interface {
 	CreateProduct(context.Context, data.CreateProductInput) (data.Product, error)
 	UpdateProduct(context.Context, int64, data.CreateProductInput) (data.Product, error)
 	DeleteProduct(context.Context, int64) error
+	AdjustProductStock(context.Context, int64, int64, data.StockAdjustmentInput) (data.StockAdjustmentResult, error)
+	GetDeliverySettings(context.Context) (data.DeliverySettings, error)
+	UpdateDeliverySettings(context.Context, data.UpdateDeliverySettingsInput) (data.DeliverySettings, error)
 	CreateOrder(context.Context, int64, string, data.CreateOrderInput) (data.Order, bool, error)
 	ListOrders(context.Context, int64, int, int) ([]data.Order, int64, error)
 	AdminOrdersFiltered(context.Context, int, int, data.OrderFilter) ([]data.Order, int64, error)

@@ -7,29 +7,12 @@ import { AdminShell } from "@/components/AdminShell";
 import { RichTextEditor } from "@/components/RichTextEditor";
 import { ProductImagesField } from "@/components/ProductImagesField";
 import { useAuth } from "@/hooks/useAuth";
+import {
+  createProductInputFromForm,
+  emptyProductForm,
+  type ProductFormValues,
+} from "@/lib/admin-product";
 import { storeApi, type Category } from "@/lib/store";
-
-type ProductForm = {
-  sku: string;
-  name: string;
-  description: string;
-  imageUrl: string;
-  imageUrls: string[];
-  priceVnd: string;
-  stock: string;
-  categoryIds: number[];
-};
-
-const emptyForm: ProductForm = {
-  sku: "",
-  name: "",
-  description: "",
-  imageUrl: "",
-  imageUrls: [],
-  priceVnd: "",
-  stock: "0",
-  categoryIds: [],
-};
 
 export default function CreateProductPage() {
   const router = useRouter();
@@ -40,7 +23,7 @@ export default function CreateProductPage() {
     logoutTo: "/admin/login",
   });
   const [categories, setCategories] = useState<Category[]>([]);
-  const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [form, setForm] = useState<ProductFormValues>(emptyProductForm);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -66,18 +49,9 @@ export default function CreateProductPage() {
     setError("");
     setNotice("");
     try {
-      await storeApi.createProduct(token, {
-        sku: form.sku.trim(),
-        name: form.name.trim(),
-        description: form.description.trim() === "<p></p>" ? "" : form.description.trim(),
-        imageUrl: (form.imageUrls[0] ?? form.imageUrl).trim(),
-        imageUrls: form.imageUrls,
-        priceVnd: Number(form.priceVnd),
-        stock: Number(form.stock),
-        categoryIds: form.categoryIds,
-      });
-      setForm(emptyForm);
-      setNotice("Đã tạo sản phẩm.");
+      const created = await storeApi.createProduct(token, createProductInputFromForm(form));
+      setForm(emptyProductForm);
+      setNotice(`Đã tạo sản phẩm với mã ${created.sku}.`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Không tạo được sản phẩm.");
     } finally {
@@ -107,20 +81,11 @@ export default function CreateProductPage() {
         <header>
           <div>
             <h2>Thông tin sản phẩm</h2>
-            <p>Các trường có dấu * là bắt buộc.</p>
+            <p>Các trường có dấu * là bắt buộc. Mã SKU được tạo tự động sau khi lưu.</p>
           </div>
           <Link href="/admin/products">Quay lại danh sách</Link>
         </header>
         <form className="admin-management-form" onSubmit={createProduct}>
-          <label>
-            Mã SKU *
-            <input
-              value={form.sku}
-              onChange={(event) => setForm({ ...form, sku: event.target.value })}
-              required
-              maxLength={64}
-            />
-          </label>
           <label>
             Tên sản phẩm *
             <input
@@ -131,24 +96,54 @@ export default function CreateProductPage() {
             />
           </label>
           <label>
-            Giá bán (₫) *
-            <input
-              type="number"
-              min="1"
-              value={form.priceVnd}
-              onChange={(event) => setForm({ ...form, priceVnd: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            Tồn kho *
+            Tồn kho ban đầu *
             <input
               type="number"
               min="0"
+              step="1"
               value={form.stock}
               onChange={(event) => setForm({ ...form, stock: event.target.value })}
               required
             />
+          </label>
+          <label>
+            Giá thường (₫) *
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={form.regularPriceVnd}
+              onChange={(event) => setForm({ ...form, regularPriceVnd: event.target.value })}
+              required
+            />
+          </label>
+          <label>
+            Giá khuyến mãi (₫)
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={form.discountPriceVnd}
+              onChange={(event) => setForm({ ...form, discountPriceVnd: event.target.value })}
+            />
+          </label>
+          <label>
+            Bắt đầu khuyến mãi
+            <input
+              type="datetime-local"
+              value={form.discountStartsAt}
+              onChange={(event) => setForm({ ...form, discountStartsAt: event.target.value })}
+            />
+            <small className="admin-field-hint">Theo múi giờ UTC+07:00.</small>
+          </label>
+          <label>
+            Kết thúc khuyến mãi
+            <input
+              type="datetime-local"
+              value={form.discountEndsAt}
+              onChange={(event) => setForm({ ...form, discountEndsAt: event.target.value })}
+            />
+            <small className="admin-field-hint">Theo múi giờ UTC+07:00.</small>
           </label>
           <label className="wide">
             URL ảnh chính (nếu có)

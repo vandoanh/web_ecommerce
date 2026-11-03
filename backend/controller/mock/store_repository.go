@@ -8,23 +8,26 @@ import (
 )
 
 type StoreRepositoryMock struct {
-	ListCategoriesFunc      func(context.Context) ([]data.Category, error)
-	CreateCategoryFunc      func(context.Context, data.CategoryInput) (data.Category, error)
-	UpdateCategoryFunc      func(context.Context, int64, data.CategoryInput) (data.Category, error)
-	DeleteCategoryFunc      func(context.Context, int64) error
-	ListProductsFunc        func(context.Context, bool) ([]data.Product, error)
-	GetProductFunc          func(context.Context, int64) (data.Product, error)
-	CreateProductFunc       func(context.Context, data.CreateProductInput) (data.Product, error)
-	UpdateProductFunc       func(context.Context, int64, data.CreateProductInput) (data.Product, error)
-	DeleteProductFunc       func(context.Context, int64) error
-	CreateOrderFunc         func(context.Context, int64, string, data.CreateOrderInput) (data.Order, bool, error)
-	ListOrdersFunc          func(context.Context, int64, int, int) ([]data.Order, int64, error)
-	AdminOrdersFilteredFunc func(context.Context, int, int, data.OrderFilter) ([]data.Order, int64, error)
-	GetOrderFunc            func(context.Context, int64, int64) (data.Order, error)
-	GetAdminOrderFunc       func(context.Context, int64) (data.Order, error)
-	CancelOrderFunc         func(context.Context, int64, int64) (data.Order, error)
-	UpdateOrderStatusFunc   func(context.Context, int64, string) (data.Order, error)
-	DashboardStatsFunc      func(context.Context) (data.DashboardStats, error)
+	ListCategoriesFunc         func(context.Context) ([]data.Category, error)
+	CreateCategoryFunc         func(context.Context, data.CategoryInput) (data.Category, error)
+	UpdateCategoryFunc         func(context.Context, int64, data.CategoryInput) (data.Category, error)
+	DeleteCategoryFunc         func(context.Context, int64) error
+	ListProductsFunc           func(context.Context, bool) ([]data.Product, error)
+	GetProductFunc             func(context.Context, int64) (data.Product, error)
+	CreateProductFunc          func(context.Context, data.CreateProductInput) (data.Product, error)
+	UpdateProductFunc          func(context.Context, int64, data.CreateProductInput) (data.Product, error)
+	DeleteProductFunc          func(context.Context, int64) error
+	AdjustProductStockFunc     func(context.Context, int64, int64, data.StockAdjustmentInput) (data.StockAdjustmentResult, error)
+	GetDeliverySettingsFunc    func(context.Context) (data.DeliverySettings, error)
+	UpdateDeliverySettingsFunc func(context.Context, data.UpdateDeliverySettingsInput) (data.DeliverySettings, error)
+	CreateOrderFunc            func(context.Context, int64, string, data.CreateOrderInput) (data.Order, bool, error)
+	ListOrdersFunc             func(context.Context, int64, int, int) ([]data.Order, int64, error)
+	AdminOrdersFilteredFunc    func(context.Context, int, int, data.OrderFilter) ([]data.Order, int64, error)
+	GetOrderFunc               func(context.Context, int64, int64) (data.Order, error)
+	GetAdminOrderFunc          func(context.Context, int64) (data.Order, error)
+	CancelOrderFunc            func(context.Context, int64, int64) (data.Order, error)
+	UpdateOrderStatusFunc      func(context.Context, int64, string) (data.Order, error)
+	DashboardStatsFunc         func(context.Context) (data.DashboardStats, error)
 }
 
 func (m *StoreRepositoryMock) ListCategories(ctx context.Context) ([]data.Category, error) {
@@ -56,7 +59,28 @@ func (m *StoreRepositoryMock) UpdateProduct(ctx context.Context, id int64, input
 	return m.UpdateProductFunc(ctx, id, input)
 }
 func (m *StoreRepositoryMock) DeleteProduct(ctx context.Context, id int64) error {
+	if m.DeleteProductFunc == nil {
+		return nil
+	}
 	return m.DeleteProductFunc(ctx, id)
+}
+func (m *StoreRepositoryMock) AdjustProductStock(ctx context.Context, productID, actorUserID int64, input data.StockAdjustmentInput) (data.StockAdjustmentResult, error) {
+	if m.AdjustProductStockFunc == nil {
+		return data.StockAdjustmentResult{}, nil
+	}
+	return m.AdjustProductStockFunc(ctx, productID, actorUserID, input)
+}
+func (m *StoreRepositoryMock) GetDeliverySettings(ctx context.Context) (data.DeliverySettings, error) {
+	if m.GetDeliverySettingsFunc == nil {
+		return data.DeliverySettings{}, nil
+	}
+	return m.GetDeliverySettingsFunc(ctx)
+}
+func (m *StoreRepositoryMock) UpdateDeliverySettings(ctx context.Context, input data.UpdateDeliverySettingsInput) (data.DeliverySettings, error) {
+	if m.UpdateDeliverySettingsFunc == nil {
+		return data.DeliverySettings{}, nil
+	}
+	return m.UpdateDeliverySettingsFunc(ctx, input)
 }
 func (m *StoreRepositoryMock) CreateOrder(ctx context.Context, userID int64, key string, input data.CreateOrderInput) (data.Order, bool, error) {
 	if m.CreateOrderFunc == nil {

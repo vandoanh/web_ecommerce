@@ -6,6 +6,7 @@ A starter online shop with a product storefront, customer accounts, shopping car
 
 - API: Go, Gin, MySQL, Redis, JSON REST, bcrypt password hashes, HS256 JWT.
 - Web: Next.js App Router, React, TypeScript, Tailwind CSS.
+- Database: MySQL 8.0.16+ is the supported baseline; Compose uses MySQL 8.4. Migration 007 declares `CHECK` constraints, which MySQL only enforces from 8.0.16, and also uses a unique generated singleton column so single-row settings stay protected even if a server parses but ignores `CHECK`.
 - Roles and groups: customers receive the `customer` role and `customers` group; the configured store administrator receives the `admin` role and `administrators` group.
 
 ## Run locally
@@ -26,7 +27,7 @@ A starter online shop with a product storefront, customer accounts, shopping car
 - `POST /api/v1/admin/auth/login`: admin-only sign-in.
 - `GET /api/v1/admin/dashboard`, product/category operations, `GET /api/v1/admin/orders?page=1&pageSize=20&status=pending&q=...`, and `PATCH /api/v1/admin/orders/:orderID/status`: admin operations. Admin routes require a valid admin token.
 
-Orders use COD/manual payment only. Checkout keys are scoped to the authenticated customer; repeated requests with the same key and payload replay the original order. Product inventory is locked in ascending ID order, checked and decremented in the same transaction as order creation. Cancelling a pending order restores stock atomically once. Admin order lists support server-side `status` and `q` filters. Redis uses AOF persistence with a Docker volume; the browser stores only a random cart ID, while cart contents stay in Redis.
+Orders use COD/manual payment only. Checkout keys are scoped to the authenticated customer; repeated requests with the same key and payload replay the original order. Product inventory is locked in ascending ID order, checked and decremented in the same transaction as order creation. Cancelling a pending order restores stock atomically once. Admin stock adjustments are audited in `stock_adjustments`; checkout reservation and cancellation also change `products.stock`/`stock_version` but are recorded by the order rows instead, so `stock_version` is an inventory revision counter rather than an adjustment count. Admin order lists support server-side `status` and `q` filters. Redis uses AOF persistence with a Docker volume; the browser stores only a random cart ID, while cart contents stay in Redis.
 
 ## Checks
 

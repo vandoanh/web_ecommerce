@@ -534,6 +534,183 @@ func TestMigrationSessionGuardFailsClosed(t *testing.T) {
 	}
 }
 
+func productStockDeliveryPlan(t *testing.T) migration {
+	t.Helper()
+	for _, current := range migrationPlan {
+		if current.version == "007" {
+			return current
+		}
+	}
+	t.Fatal("migration 007 is not registered")
+	return migration{}
+}
+
+func migrationContainsStatement(sql, target string) bool {
+	normalizedTarget := normalizeSQLStatement(target)
+	for _, statement := range splitSQLStatements(sql) {
+		if normalizeSQLStatement(statement) == normalizedTarget {
+			return true
+		}
+	}
+	return false
+}
+
+func TestProductStockDeliveryMigrationDefinition(t *testing.T) {
+	current := productStockDeliveryPlan(t)
+	if current.sql != productStockDeliveryMigration {
+		t.Fatal("migration 007 must embed migrations/007_product_stock_delivery.sql")
+	}
+	wantTables := map[string]bool{"stock_adjustments": true, "delivery_settings": true}
+	if len(current.tables) != len(wantTables) {
+		t.Fatalf("unexpected migration tables: %v", current.tables)
+	}
+	for _, table := range current.tables {
+		if !wantTables[table] {
+			t.Fatalf("unexpected migration table %q", table)
+		}
+	}
+
+	expectedColumns := []migrationColumn{
+		{table: "products", name: "regular_price_vnd", dataType: "bigint", nullability: "YES"},
+		{table: "products", name: "discount_price_vnd", dataType: "bigint", nullability: "YES"},
+		{table: "products", name: "discount_starts_at", dataType: "datetime", nullability: "YES"},
+		{table: "products", name: "discount_ends_at", dataType: "datetime", nullability: "YES"},
+		{table: "products", name: "stock_version", dataType: "bigint", nullability: "NO"},
+		{table: "stock_adjustments", name: "id", dataType: "bigint", nullability: "NO"},
+		{table: "stock_adjustments", name: "product_id", dataType: "bigint", nullability: "NO"},
+		{table: "stock_adjustments", name: "delta", dataType: "int", nullability: "NO"},
+		{table: "stock_adjustments", name: "stock_before", dataType: "int", nullability: "NO"},
+		{table: "stock_adjustments", name: "stock_after", dataType: "int", nullability: "NO"},
+		{table: "stock_adjustments", name: "stock_version_after", dataType: "bigint", nullability: "NO"},
+		{table: "stock_adjustments", name: "reason", dataType: "varchar", charMaxLength: 255, nullability: "NO"},
+		{table: "stock_adjustments", name: "actor_user_id", dataType: "int", nullability: "NO"},
+		{table: "stock_adjustments", name: "idempotency_key", dataType: "char", charMaxLength: 36, nullability: "YES"},
+		{table: "stock_adjustments", name: "request_hash", dataType: "char", charMaxLength: 64, nullability: "NO"},
+		{table: "stock_adjustments", name: "created_at", dataType: "datetime", nullability: "NO"},
+		{table: "delivery_settings", name: "id", dataType: "tinyint", nullability: "NO"},
+		{table: "delivery_settings", name: "singleton", dataType: "tinyint", nullability: "NO"},
+		{table: "delivery_settings", name: "phone", dataType: "varchar", charMaxLength: 32, nullability: "NO"},
+		{table: "delivery_settings", name: "address", dataType: "text", nullability: "NO"},
+		{table: "delivery_settings", name: "map_location", dataType: "text", nullability: "NO"},
+		{table: "delivery_settings", name: "delivery_text", dataType: "text", nullability: "NO"},
+		{table: "delivery_settings", name: "updated_at", dataType: "datetime", nullability: "NO"},
+		{table: "delivery_settings", name: "version", dataType: "bigint", nullability: "NO"},
+	}
+	columns := make(map[string]migrationColumn, len(current.columns))
+	for _, column := range current.columns {
+		columns[column.table+"."+column.name] = column
+	}
+	if len(columns) != len(expectedColumns) {
+		t.Fatalf("unexpected migration columns: %+v", current.columns)
+	}
+	for _, expected := range expectedColumns {
+		actual, ok := columns[expected.table+"."+expected.name]
+		if !ok {
+			t.Fatalf("migration 007 must verify %s.%s", expected.table, expected.name)
+		}
+		if actual.dataType != expected.dataType || actual.charMaxLength != expected.charMaxLength || actual.nullability != expected.nullability {
+			t.Fatalf("unexpected schema expectation for %s.%s: %+v", expected.table, expected.name, actual)
+		}
+	}
+
+	expectedForeignKeys := []migrationForeignKey{
+		{table: "stock_adjustments", column: "product_id", referencedTable: "products", referencedColumn: "id"},
+		{table: "stock_adjustments", column: "actor_user_id", referencedTable: "users", referencedColumn: "id"},
+	}
+	foreignKeys := make(map[string]migrationForeignKey, len(current.foreignKeys))
+	for _, foreignKey := range current.foreignKeys {
+		foreignKeys[foreignKey.table+"."+foreignKey.column] = foreignKey
+	}
+	if len(foreignKeys) != len(expectedForeignKeys) {
+		t.Fatalf("unexpected migration foreign keys: %+v", current.foreignKeys)
+	}
+	for _, expected := range expectedForeignKeys {
+		actual, ok := foreignKeys[expected.table+"."+expected.column]
+		if !ok {
+			t.Fatalf("migration 007 must verify foreign key on %s.%s", expected.table, expected.column)
+		}
+		if actual.referencedTable != expected.referencedTable || actual.referencedColumn != expected.referencedColumn {
+			t.Fatalf("unexpected foreign key target for %s.%s: %+v", expected.table, expected.column, actual)
+		}
+	}
+
+	contents := strings.ToLower(current.sql)
+	for _, fragment := range []string{
+		"regular_price_vnd bigint",
+		"discount_price_vnd bigint",
+		"discount_starts_at datetime(6)",
+		"discount_ends_at datetime(6)",
+		"stock_version bigint not null default 0",
+		"update products set regular_price_vnd = price_vnd",
+		"idempotency_key char(36) null",
+		"stock_adjustments_product_created_idx",
+		"singleton tinyint generated always as (1) stored not null",
+		"unique key delivery_settings_singleton_unique",
+		"constraint delivery_settings_singleton check (id = 1)",
+		"insert ignore into delivery_settings",
+	} {
+		if !strings.Contains(contents, fragment) {
+			t.Fatalf("migration 007 is missing %q", fragment)
+		}
+	}
+}
+
+func TestStockAdjustmentAuditScopeIsDocumentedAsAdminOnly(t *testing.T) {
+	current := productStockDeliveryPlan(t)
+	contents := strings.ToLower(current.sql)
+	for _, fragment := range []string{
+		"admin stock-adjustment audit only",
+		"orders/order_items",
+		"intentionally not duplicated",
+		"stock_version is an inventory revision counter, not an adjustment count",
+	} {
+		if !strings.Contains(contents, fragment) {
+			t.Fatalf("migration 007 must document admin-only audit scope; missing %q", fragment)
+		}
+	}
+}
+
+func TestDeliverySettingsSingletonSurvivesMySQLWithoutEnforcedCheck(t *testing.T) {
+	current := productStockDeliveryPlan(t)
+	contents := strings.ToLower(current.sql)
+	if !strings.Contains(contents, "singleton tinyint generated always as (1) stored not null") {
+		t.Fatal("delivery_settings must have a generated singleton column")
+	}
+	if !strings.Contains(contents, "unique key delivery_settings_singleton_unique (singleton)") {
+		t.Fatal("delivery_settings singleton column must be uniquely indexed")
+	}
+	if !strings.Contains(contents, "constraint delivery_settings_singleton check (id = 1)") {
+		t.Fatal("delivery_settings should still declare the singleton CHECK on versions that enforce it")
+	}
+}
+
+func TestMigration007AllowsOnlyExactDuplicateColumnRecovery(t *testing.T) {
+	duplicate := &mysql.MySQLError{Number: 1060, Message: "Duplicate column name"}
+	statements := recoverableDuplicateColumnStatements["007"]
+	if len(statements) != 5 {
+		t.Fatalf("unexpected 007 recovery statement count: %v", statements)
+	}
+	current := productStockDeliveryPlan(t)
+	for _, statement := range statements {
+		if !migrationContainsStatement(current.sql, statement) {
+			t.Fatalf("007 recovery statement is not present in the migration: %q", statement)
+		}
+		if !isMigrationRecoveryError(duplicate, "007", statement) {
+			t.Fatalf("exact 007 duplicate-column statement should be recoverable: %q", statement)
+		}
+		if isMigrationRecoveryError(duplicate, "006", statement) {
+			t.Fatalf("007 recovery must not apply to version 006: %q", statement)
+		}
+	}
+	wrong := "ALTER TABLE products ADD COLUMN regular_price_vnd INT NULL AFTER price_vnd"
+	if isMigrationRecoveryError(duplicate, "007", wrong) {
+		t.Fatal("recovery must not suppress a different 007 column definition")
+	}
+	if isMigrationRecoveryError(duplicate, "007", "CREATE TABLE stock_adjustments (id BIGINT PRIMARY KEY)") {
+		t.Fatal("recovery must not suppress duplicate errors for other 007 statements")
+	}
+}
+
 func verifyMigrationPlanApplied(t *testing.T, ctx context.Context, executor migrationExecutor) {
 	t.Helper()
 	for _, current := range migrationPlan {

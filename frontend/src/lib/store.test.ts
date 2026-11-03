@@ -27,11 +27,10 @@ describe("storeApi", () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     vi.stubGlobal("fetch", fetch);
     const product = {
-      sku: "SKU-2",
       name: "Cup",
       description: "",
       imageUrl: "",
-      priceVnd: 99000,
+      regularPriceVnd: 99000,
       stock: 4,
       categoryIds: [],
     };
@@ -70,6 +69,70 @@ describe("storeApi", () => {
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/admin/dashboard",
       expect.anything(),
+    );
+  });
+
+  it("sends product updates, stock adjustments and delivery settings", async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetch);
+    const update = {
+      sku: "TKAB12CD34EF",
+      name: "Bánh mì",
+      description: "",
+      imageUrl: "",
+      regularPriceVnd: 50000,
+      discountPriceVnd: 45000,
+      discountStartsAt: "2026-11-03T00:00:00+07:00",
+      discountEndsAt: "2026-11-10T00:00:00+07:00",
+      categoryIds: [1],
+    };
+    const stock = {
+      delta: -2,
+      reason: "damaged",
+      idempotencyKey: "9d77cd79-d774-45d0-a960-566b94069386",
+    };
+    const delivery = {
+      phone: "0901234567",
+      address: "12 Nguyễn Huệ",
+      mapLocation: "https://maps.google.com",
+      deliveryText: "Giao trong ngày.",
+      expectedVersion: 3,
+    };
+
+    await storeApi.updateProduct("admin-jwt", 5, update);
+    await storeApi.adjustProductStock("admin-jwt", 5, stock);
+    await storeApi.adminDeliverySettings("admin-jwt");
+    await storeApi.updateDeliverySettings("admin-jwt", delivery);
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8080/api/v1/admin/products/5",
+      expect.objectContaining({
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer admin-jwt" },
+        body: JSON.stringify(update),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8080/api/v1/admin/products/5/stock-adjustments",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(stock),
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:8080/api/v1/admin/settings/delivery",
+      expect.objectContaining({ headers: { Authorization: "Bearer admin-jwt" } }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      4,
+      "http://localhost:8080/api/v1/admin/settings/delivery",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify(delivery),
+      }),
     );
   });
 
@@ -127,10 +190,14 @@ describe("storeApi", () => {
       vi.fn().mockResolvedValue({
         ok: false,
         status: 409,
-        json: async () => ({ error: "Out of stock" }),
+        json: async () => ({ error: "Out of stock", code: "VERSION_CONFLICT" }),
       }),
     );
-    await expect(storeApi.products()).rejects.toThrow("Out of stock");
+    await expect(storeApi.products()).rejects.toMatchObject({
+      message: "Out of stock",
+      status: 409,
+      code: "VERSION_CONFLICT",
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -142,6 +209,30 @@ describe("storeApi", () => {
       }),
     );
     await expect(storeApi.products()).rejects.toThrow("Request failed (502)");
+  });
+
+  it("uploads product images and resolves relative URLs", async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: ["/uploads/a.jpg", "https://cdn.example/b.jpg"] }),
+    });
+    vi.stubGlobal("fetch", fetch);
+    const file = new File(["image"], "a.jpg", { type: "image/jpeg" });
+
+    await expect(storeApi.uploadProductImages("admin-jwt", [file])).resolves.toEqual([
+      "http://localhost:8080/uploads/a.jpg",
+      "https://cdn.example/b.jpg",
+    ]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      "http://localhost:8080/api/v1/admin/product-images",
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer admin-jwt" },
+      }),
+    );
+    const body = fetch.mock.calls[0][1].body as FormData;
+    expect(body.get("images")).toBeInstanceOf(File);
   });
 
   it("loads, saves, and clears the server-side cart", async () => {

@@ -12,6 +12,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/example/youtube-dashboard-go-next/backend/controller/repository"
 	"github.com/example/youtube-dashboard-go-next/backend/data"
@@ -70,7 +71,9 @@ func (m *StoreModel) CreateOrder(ctx context.Context, userID int64, key string, 
 		}
 	}
 
-	order, err := m.insertOrder(ctx, tx, userID, key, input)
+	// Capture one instant for every scheduled-price decision in this checkout.
+	effectiveAt := time.Now().UTC()
+	order, err := m.insertOrder(ctx, tx, userID, key, input, effectiveAt)
 	if err != nil {
 		return data.Order{}, false, err
 	}
@@ -97,7 +100,7 @@ func validateOrderInput(input data.CreateOrderInput) error {
 	return nil
 }
 
-func (m *StoreModel) insertOrder(ctx context.Context, tx *sql.Tx, userID int64, key string, input data.CreateOrderInput) (data.Order, error) {
+func (m *StoreModel) insertOrder(ctx context.Context, tx *sql.Tx, userID int64, key string, input data.CreateOrderInput, effectiveAt time.Time) (data.Order, error) {
 	type lockedProduct struct {
 		name  string
 		price int64
@@ -110,14 +113,32 @@ func (m *StoreModel) insertOrder(ctx context.Context, tx *sql.Tx, userID int64, 
 	locked := make(map[int64]lockedProduct, len(lines))
 	for _, line := range lines {
 		var product lockedProduct
-		err := tx.QueryRowContext(ctx, `SELECT name, price_vnd, stock FROM products WHERE id = ? AND is_active = TRUE FOR UPDATE`, line.ProductID).
-			Scan(&product.name, &product.price, &product.stock)
+		var regularPrice int64
+		var discountPrice sql.NullInt64
+		var startsAt, endsAt sql.NullTime
+		err := tx.QueryRowContext(ctx, `SELECT name, COALESCE(regular_price_vnd, price_vnd), discount_price_vnd, discount_starts_at, discount_ends_at, stock FROM products WHERE id = ? AND is_active = TRUE FOR UPDATE`, line.ProductID).
+			Scan(&product.name, &regularPrice, &discountPrice, &startsAt, &endsAt, &product.stock)
 		if errors.Is(err, sql.ErrNoRows) {
 			return data.Order{}, repository.ErrProductUnavailable
 		}
 		if err != nil {
 			return data.Order{}, fmt.Errorf("lock product %d: %w", line.ProductID, err)
 		}
+		var discount *int64
+		if discountPrice.Valid {
+			value := discountPrice.Int64
+			discount = &value
+		}
+		var starts, ends *time.Time
+		if startsAt.Valid {
+			value := startsAt.Time.UTC()
+			starts = &value
+		}
+		if endsAt.Valid {
+			value := endsAt.Time.UTC()
+			ends = &value
+		}
+		product.price = data.EffectiveProductPriceVND(regularPrice, discount, starts, ends, effectiveAt)
 		if product.price <= 0 || product.price > math.MaxInt64/int64(line.Quantity) {
 			return data.Order{}, repository.ErrInvalidOrderInput
 		}
@@ -126,8 +147,12 @@ func (m *StoreModel) insertOrder(ctx context.Context, tx *sql.Tx, userID int64, 
 		}
 		locked[line.ProductID] = product
 	}
+	// Checkout reservations deliberately do not write stock_adjustments: that
+	// table is the admin-adjustment audit trail. The order_items snapshot and
+	// order status are the durable record of this inventory movement; only the
+	// product row's stock and stock_version change here.
 	for _, line := range lines {
-		result, err := tx.ExecContext(ctx, `UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?`, line.Quantity, line.ProductID, line.Quantity)
+		result, err := tx.ExecContext(ctx, `UPDATE products SET stock = stock - ?, stock_version = stock_version + 1 WHERE id = ? AND stock >= ?`, line.Quantity, line.ProductID, line.Quantity)
 		if err != nil {
 			return data.Order{}, fmt.Errorf("reserve product %d: %w", line.ProductID, err)
 		}
@@ -490,8 +515,11 @@ func restoreOrderStock(ctx context.Context, tx *sql.Tx, orderID int64) error {
 		return err
 	}
 	rows.Close()
+	// Cancellation restoration is part of the order lifecycle, not an admin
+	// adjustment. It bumps stock_version for optimistic inventory visibility but
+	// intentionally leaves stock_adjustments to the admin-only audit trail.
 	for _, item := range lines {
-		if _, err = tx.ExecContext(ctx, `UPDATE products SET stock = stock + ? WHERE id = ?`, item.quantity, item.productID); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE products SET stock = stock + ?, stock_version = stock_version + 1 WHERE id = ?`, item.quantity, item.productID); err != nil {
 			return err
 		}
 	}

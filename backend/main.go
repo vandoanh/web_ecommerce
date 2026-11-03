@@ -36,6 +36,9 @@ var contactsMigration string
 //go:embed migrations/006_checkout_orders.sql
 var checkoutOrdersMigration string
 
+//go:embed migrations/007_product_stock_delivery.sql
+var productStockDeliveryMigration string
+
 type migrationColumn struct {
 	table         string
 	name          string
@@ -76,10 +79,25 @@ type migrationExecutor interface {
 // bypassed by continuing through a pooled *sql.DB.
 type migrationWriteGuard func(context.Context) error
 
-// checkoutPaymentMethodStatement is the only migration statement for which a
-// duplicate-column error is treated as already satisfied. Keeping it exact
-// avoids swallowing duplicate errors for unrelated columns or tables.
+// checkoutPaymentMethodStatement is retained for the migration 006 recovery
+// contract. Duplicate-column errors are only ignored for the exact statements
+// listed below, so an unrelated column/table collision still aborts startup.
 const checkoutPaymentMethodStatement = "ALTER TABLE orders ADD COLUMN payment_method VARCHAR(16) NOT NULL DEFAULT 'cod' AFTER status"
+
+// recoverableDuplicateColumnStatements allows a restart after partially
+// applied additive DDL. Each statement is matched exactly; the post-migration
+// schema verification still rejects a duplicate column with the wrong type or
+// nullability.
+var recoverableDuplicateColumnStatements = map[string][]string{
+	"006": {checkoutPaymentMethodStatement},
+	"007": {
+		"ALTER TABLE products ADD COLUMN regular_price_vnd BIGINT NULL AFTER price_vnd",
+		"ALTER TABLE products ADD COLUMN discount_price_vnd BIGINT NULL AFTER regular_price_vnd",
+		"ALTER TABLE products ADD COLUMN discount_starts_at DATETIME(6) NULL AFTER discount_price_vnd",
+		"ALTER TABLE products ADD COLUMN discount_ends_at DATETIME(6) NULL AFTER discount_starts_at",
+		"ALTER TABLE products ADD COLUMN stock_version BIGINT NOT NULL DEFAULT 0 AFTER stock",
+	},
+}
 
 var migrationPlan = []migration{
 	{version: "001", name: "store", sql: storeMigration, tables: []string{"products", "orders", "order_items"}},
@@ -103,6 +121,42 @@ var migrationPlan = []migration{
 		foreignKeys: []migrationForeignKey{
 			{table: "order_idempotency", column: "user_id", referencedTable: "users", referencedColumn: "id"},
 			{table: "order_idempotency", column: "order_id", referencedTable: "orders", referencedColumn: "id"},
+		},
+	},
+	{
+		version: "007",
+		name:    "product stock delivery",
+		sql:     productStockDeliveryMigration,
+		tables:  []string{"stock_adjustments", "delivery_settings"},
+		columns: []migrationColumn{
+			{table: "products", name: "regular_price_vnd", dataType: "bigint", nullability: "YES"},
+			{table: "products", name: "discount_price_vnd", dataType: "bigint", nullability: "YES"},
+			{table: "products", name: "discount_starts_at", dataType: "datetime", nullability: "YES"},
+			{table: "products", name: "discount_ends_at", dataType: "datetime", nullability: "YES"},
+			{table: "products", name: "stock_version", dataType: "bigint", nullability: "NO"},
+			{table: "stock_adjustments", name: "id", dataType: "bigint", nullability: "NO"},
+			{table: "stock_adjustments", name: "product_id", dataType: "bigint", nullability: "NO"},
+			{table: "stock_adjustments", name: "delta", dataType: "int", nullability: "NO"},
+			{table: "stock_adjustments", name: "stock_before", dataType: "int", nullability: "NO"},
+			{table: "stock_adjustments", name: "stock_after", dataType: "int", nullability: "NO"},
+			{table: "stock_adjustments", name: "stock_version_after", dataType: "bigint", nullability: "NO"},
+			{table: "stock_adjustments", name: "reason", dataType: "varchar", charMaxLength: 255, nullability: "NO"},
+			{table: "stock_adjustments", name: "actor_user_id", dataType: "int", nullability: "NO"},
+			{table: "stock_adjustments", name: "idempotency_key", dataType: "char", charMaxLength: 36, nullability: "YES"},
+			{table: "stock_adjustments", name: "request_hash", dataType: "char", charMaxLength: 64, nullability: "NO"},
+			{table: "stock_adjustments", name: "created_at", dataType: "datetime", nullability: "NO"},
+			{table: "delivery_settings", name: "id", dataType: "tinyint", nullability: "NO"},
+			{table: "delivery_settings", name: "singleton", dataType: "tinyint", nullability: "NO"},
+			{table: "delivery_settings", name: "phone", dataType: "varchar", charMaxLength: 32, nullability: "NO"},
+			{table: "delivery_settings", name: "address", dataType: "text", nullability: "NO"},
+			{table: "delivery_settings", name: "map_location", dataType: "text", nullability: "NO"},
+			{table: "delivery_settings", name: "delivery_text", dataType: "text", nullability: "NO"},
+			{table: "delivery_settings", name: "updated_at", dataType: "datetime", nullability: "NO"},
+			{table: "delivery_settings", name: "version", dataType: "bigint", nullability: "NO"},
+		},
+		foreignKeys: []migrationForeignKey{
+			{table: "stock_adjustments", column: "product_id", referencedTable: "products", referencedColumn: "id"},
+			{table: "stock_adjustments", column: "actor_user_id", referencedTable: "users", referencedColumn: "id"},
 		},
 	},
 }
@@ -391,7 +445,19 @@ func isSQLSpace(character byte) bool {
 }
 
 func isMigrationRecoveryError(err error, version, statement string) bool {
-	if version != "006" || normalizeSQLStatement(statement) != normalizeSQLStatement(checkoutPaymentMethodStatement) {
+	candidates, ok := recoverableDuplicateColumnStatements[version]
+	if !ok {
+		return false
+	}
+	normalized := normalizeSQLStatement(statement)
+	matched := false
+	for _, candidate := range candidates {
+		if normalized == normalizeSQLStatement(candidate) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
 		return false
 	}
 	var mysqlErr *mysql.MySQLError

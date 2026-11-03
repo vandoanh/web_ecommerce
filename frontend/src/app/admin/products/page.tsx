@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AdminShell } from "@/components/AdminShell";
 import { useAuth } from "@/hooks/useAuth";
+import { discountScheduleText } from "@/lib/product-pricing";
 import { storeApi, type Product } from "@/lib/store";
 
 const money = (amount: number) =>
@@ -91,7 +92,7 @@ export default function AdminProductsPage() {
             <thead>
               <tr>
                 <th>SẢN PHẨM</th>
-                <th>GIÁ</th>
+                <th>GIÁ &amp; KHUYẾN MÃI</th>
                 <th>TỒN KHO</th>
                 <th>DANH MỤC</th>
                 <th>THAO TÁC</th>
@@ -115,8 +116,28 @@ export default function AdminProductsPage() {
                       </span>
                     </div>
                   </td>
-                  <td>{money(product.priceVnd)}</td>
-                  <td>{product.stock}</td>
+                  <td>
+                    <span>{money(product.priceVnd)}</span>
+                    {product.discountPriceVnd !== null &&
+                      product.discountStartsAt &&
+                      product.discountEndsAt && (
+                        <>
+                          <small className="admin-price-secondary">
+                            Giá thường {money(product.regularPriceVnd)} · Khuyến mãi{" "}
+                            {money(product.discountPriceVnd)}
+                          </small>
+                          <small className="admin-price-secondary">
+                            {discountScheduleText(product.discountStartsAt, product.discountEndsAt)}
+                          </small>
+                        </>
+                      )}
+                  </td>
+                  <td>
+                    <span>{product.stock}</span>
+                    <small className="admin-price-secondary">
+                      Phiên bản {product.stockVersion}
+                    </small>
+                  </td>
                   <td>{product.categories.map((category) => category.name).join(", ") || "—"}</td>
                   <td>
                     <div className="admin-row-actions">

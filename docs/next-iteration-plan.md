@@ -41,15 +41,15 @@
 - Review accessibility, privacy, upload safety, discounts, generated/editable SKU, stock concurrency vs checkout/cancel, COD and delivery info.
 - Run tests and record exact outputs; never claim skipped MySQL tests passed.
 
-## Backend decisions still needed
+## Backend contract decisions
 
-1. Discount value model (sale amount vs percentage), interval boundary convention, canonical timestamp serialization. Store timezone +07:00 is approved; recommended persistence is UTC instants.
-2. Exact generated SKU format/prefix/length and normalization. Editability is approved; enforce format and uniqueness on create and edit. The code must be alphanumeric without punctuation.
-3. Stock API semantics: signed adjustment vs absolute set, non-negative policy, whether reason and immutable audit log are required, handling decreases and concurrent checkout/cancellation.
-4. Image upload formats/limits, dimension/decompression validation, reorder/remove/primary behavior.
-5. Delivery information fields and visibility; whether fields are informational only or affect delivery fees/eligibility/order totals.
+**Approved 2026-11-03:** implement recommendations in `docs/backend-followup-contract.md`: absolute discount price with half-open `[start,end)` in UTC+07:00 (UTC persistence, canonical `Z` response); generated `TK` + 10 uppercase alphanumeric SKU editable by admin; signed stock adjustments with required reason/admin actor audit and optional idempotency; informational admin-only delivery settings with optimistic versioning and no fee calculation.
 
-Do not choose defaults for these product/business policies without user approval. Keep COD and the approved +07:00 timezone as fixed requirements. The backend proposal included with this work is for review only, not an approved API/schema specification.
+1. Image upload formats/limits, dimension/decompression validation, reorder/remove/primary behavior and production asset provenance.
+2. Category display labels/slugs, seeding method, and approved real products/assignments.
+3. Public delivery-information endpoint is not approved; delivery API remains admin-only.
+
+Keep COD and UTC+07:00 as fixed requirements. `docs/backend-followup-contract.md` is approved for the decisions identified above; image policy and product catalog content remain open.
 
 ## PR sequence
 
