@@ -1,4 +1,5 @@
 import { ApiError, type CreateOrderPayload } from "@/lib/store";
+import { newIdempotencyKey } from "@/lib/idempotency";
 
 export const CHECKOUT_ATTEMPT_STORAGE_KEY = "store-checkout-attempt";
 export const CHECKOUT_COMPLETION_STORAGE_KEY = "store-checkout-completion";
@@ -135,14 +136,7 @@ type CompletionLookup =
   | { status: "unavailable"; error: unknown };
 
 export function newCheckoutIdempotencyKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-    const random = Math.floor(Math.random() * 16);
-    const value = character === "x" ? random : (random & 0x3) | 0x8;
-    return value.toString(16);
-  });
+  return newIdempotencyKey();
 }
 
 function storageOrDefault(storage?: CheckoutStorage | null): CheckoutStorage {

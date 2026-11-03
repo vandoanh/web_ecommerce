@@ -1,6 +1,6 @@
 # Backend follow-up contract proposal
 
-**Status:** proposal only; no backend source, migrations, configuration, or database were changed. Rechecked against commit `1592d7121b189639491c99cf505a83e4d28abbf0`. Preserve Route → Controller → Service → Model, frontend compatibility, and backend agent ownership rules. User-approved facts: discount times use UTC+07:00; product codes are server-generated, unique, alphanumeric, and editable by authorized admin; stock is admin-managed; COD remains the only payment method. Proposed routes/schema below are not approved or implemented. Remaining policy decisions are listed at the end.
+**Status:** implementation recommendations approved by the user on 2026-11-03 for this follow-up, based on `origin/main` commit `3c5e3b76801990a7e8138f73d91c1fffc5cc3670`. Preserve Route → Controller → Service → Model and frontend compatibility. Approved: absolute sale price, half-open `[start,end)` in UTC+07:00 (RFC3339 offset inputs, UTC persistence, canonical UTC `Z` responses); server-generated unique `TK` + 10 uppercase alphanumeric SKU editable by admin; signed stock adjustments with required reason, actor audit, non-negative stock and optional idempotency key; informational admin-only delivery settings with optimistic versioning and no fee/service-area calculation. COD remains the only payment method. Image hardening and category seeding remain outside this approval.
 
 ## Existing backend surface (confirmed)
 
@@ -135,12 +135,12 @@ Rollback is not simply dropping columns after writes begin. Plan forward-compati
 
 | Decision | Safe recommendation | Status |
 |---|---|---|
-| Discount meaning | `discountPriceVnd` absolute sale amount, with regular price and explicit start/end; effective price server-calculated. | Approval required |
+| Discount meaning | `discountPriceVnd` absolute sale amount, with regular price and explicit start/end; effective price server-calculated. | Approved 2026-11-03 |
 | Store timezone | UTC+07:00 for discount schedule entry/display. | Approved |
-| Time boundaries/serialization | Persist UTC instants; RFC3339 explicit-offset input; half-open `[start,end)`; canonical UTC `Z` rendered in UTC+07:00. | Boundary and serialization convention require confirmation |
+| Time boundaries/serialization | Persist UTC instants; RFC3339 explicit-offset input; half-open `[start,end)`; canonical UTC `Z` rendered in UTC+07:00. | Approved 2026-11-03 |
 | Product-code behavior | Server-generated, unique, alphanumeric; editable by authorized admin; unique check on create and edit. | Approved |
-| Exact generated SKU pattern | `TK` + 10 uppercase cryptographically random alphanumeric chars, no separator. | Approval required |
-| Stock API and audit | Signed adjustment with reason and actor audit; optional idempotency key; separate expected-version absolute set only for reconciliation. | Approval required |
+| Exact generated SKU pattern | `TK` + 10 uppercase cryptographically random alphanumeric chars, no separator. | Approved 2026-11-03 |
+| Stock API and audit | Signed adjustment with required reason and actor audit, non-negative resulting stock, optional idempotency key. | Approved 2026-11-03 |
 | Image limits and formats | Keep 10 files / 8 MiB each / 50 MiB aggregate; JPEG/PNG/WebP only; decode and dimension checks. | Approval required |
-| Delivery settings role | Informational display only, not rate/service-area calculation; public-safe subset only if storefront needs it. | Approval required |
+| Delivery settings role | Informational display only, not rate/service-area calculation; admin-only at this stage. | Approved 2026-11-03 |
 | Product groups | Seed six named groups as categories; confirm spelling/slugs and whether products can be multi-group. | Approval required |

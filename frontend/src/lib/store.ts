@@ -10,22 +10,52 @@ export type Product = {
   imageUrl: string;
   images?: string[];
   priceVnd: number;
+  regularPriceVnd: number;
+  discountPriceVnd: number | null;
+  discountStartsAt: string | null;
+  discountEndsAt: string | null;
+  priceEffectiveAt: string;
   stock: number;
+  stockVersion: number;
   isActive: boolean;
   categories: Category[];
 };
 export type Category = { id: number; name: string; slug: string; description: string };
 export type CategoryInput = Omit<Category, "id">;
-export type ProductInput = {
-  sku: string;
+export type ProductWriteInput = {
   name: string;
   description: string;
   imageUrl: string;
   imageUrls?: string[];
-  priceVnd: number;
-  stock: number;
+  regularPriceVnd: number;
+  discountPriceVnd?: number | null;
+  discountStartsAt?: string | null;
+  discountEndsAt?: string | null;
   isActive?: boolean;
   categoryIds: number[];
+};
+export type ProductCreateInput = ProductWriteInput & { stock: number };
+export type ProductUpdateInput = ProductWriteInput & { sku: string };
+export type StockAdjustmentInput = {
+  delta: number;
+  reason: string;
+  idempotencyKey?: string;
+};
+export type StockAdjustmentResult = {
+  productId: number;
+  stock: number;
+  stockVersion: number;
+};
+export type DeliverySettings = {
+  phone: string;
+  address: string;
+  mapLocation: string;
+  deliveryText: string;
+  updatedAt: string;
+  version: number;
+};
+export type DeliverySettingsInput = Omit<DeliverySettings, "updatedAt" | "version"> & {
+  expectedVersion: number;
 };
 export type OrderStatus = "pending" | "processing" | "paid" | "shipped" | "completed" | "cancelled";
 export type OrderItem = {
@@ -69,10 +99,12 @@ export type DashboardStats = {
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -123,8 +155,12 @@ async function request<T>(path: string, token?: string, init: RequestInit = {}):
     window.dispatchEvent(new Event("store-auth-change"));
   }
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(payload.error ?? `Request failed (${response.status})`, response.status);
+    const payload = (await response.json().catch(() => ({}))) as { error?: string; code?: string };
+    throw new ApiError(
+      payload.error ?? `Request failed (${response.status})`,
+      response.status,
+      payload.code,
+    );
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -202,18 +238,30 @@ export const storeApi = {
     }),
   deleteCategory: (token: string, id: number) =>
     request<void>(`/api/v1/admin/categories/${id}`, token, { method: "DELETE" }),
-  createProduct: (token: string, product: ProductInput) =>
+  createProduct: (token: string, product: ProductCreateInput) =>
     request<Product>("/api/v1/admin/products", token, {
       method: "POST",
       body: JSON.stringify(product),
     }),
-  updateProduct: (token: string, id: number, product: ProductInput) =>
+  updateProduct: (token: string, id: number, product: ProductUpdateInput) =>
     request<Product>(`/api/v1/admin/products/${id}`, token, {
       method: "PUT",
       body: JSON.stringify(product),
     }),
   deleteProduct: (token: string, id: number) =>
     request<void>(`/api/v1/admin/products/${id}`, token, { method: "DELETE" }),
+  adjustProductStock: (token: string, id: number, adjustment: StockAdjustmentInput) =>
+    request<StockAdjustmentResult>(`/api/v1/admin/products/${id}/stock-adjustments`, token, {
+      method: "POST",
+      body: JSON.stringify(adjustment),
+    }),
+  adminDeliverySettings: (token: string) =>
+    request<DeliverySettings>("/api/v1/admin/settings/delivery", token),
+  updateDeliverySettings: (token: string, settings: DeliverySettingsInput) =>
+    request<DeliverySettings>("/api/v1/admin/settings/delivery", token, {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
   uploadProductImages: async (token: string, files: File[]) => {
     const formData = new FormData();
     files.forEach((file) => formData.append("images", file));

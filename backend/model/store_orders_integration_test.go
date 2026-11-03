@@ -38,7 +38,7 @@ var integrationTableSpec = []struct {
 	},
 	{
 		name:      "products",
-		statement: `CREATE TABLE products (id BIGINT NOT NULL PRIMARY KEY, name VARCHAR(255) NOT NULL, price_vnd BIGINT NOT NULL, stock INT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE) ENGINE=InnoDB`,
+		statement: `CREATE TABLE products (id BIGINT NOT NULL PRIMARY KEY, name VARCHAR(255) NOT NULL, price_vnd BIGINT NOT NULL, regular_price_vnd BIGINT NULL, discount_price_vnd BIGINT NULL, discount_starts_at DATETIME(6) NULL, discount_ends_at DATETIME(6) NULL, stock INT NOT NULL, stock_version BIGINT NOT NULL DEFAULT 0, is_active BOOLEAN NOT NULL DEFAULT TRUE) ENGINE=InnoDB`,
 	},
 	{
 		name:      "orders",
@@ -51,6 +51,10 @@ var integrationTableSpec = []struct {
 	{
 		name:      "order_idempotency",
 		statement: `CREATE TABLE order_idempotency (user_id INT NOT NULL, idempotency_key CHAR(36) NOT NULL, request_hash CHAR(64) NOT NULL, order_id BIGINT NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id,idempotency_key), UNIQUE KEY order_idempotency_order_unique(order_id), CONSTRAINT order_idempotency_user_fk FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE, CONSTRAINT order_idempotency_order_fk FOREIGN KEY(order_id) REFERENCES orders(id) ON DELETE CASCADE) ENGINE=InnoDB`,
+	},
+	{
+		name:      "stock_adjustments",
+		statement: `CREATE TABLE stock_adjustments (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, product_id BIGINT NOT NULL, delta INT NOT NULL, stock_before INT NOT NULL, stock_after INT NOT NULL, stock_version_after BIGINT NOT NULL, reason VARCHAR(255) NOT NULL, actor_user_id INT NOT NULL, idempotency_key CHAR(36) NULL, request_hash CHAR(64) NOT NULL, created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6), KEY stock_adjustments_product_created_idx(product_id,created_at), UNIQUE KEY stock_adjustments_actor_idempotency_unique(actor_user_id,idempotency_key), CONSTRAINT stock_adjustments_product_fk FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE RESTRICT, CONSTRAINT stock_adjustments_actor_fk FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE RESTRICT) ENGINE=InnoDB`,
 	},
 }
 
@@ -468,6 +472,39 @@ func TestCheckoutOrdersMySQLIntegration(t *testing.T) {
 	if _, total, listErr := store.AdminOrdersFiltered(ctx, 1, 20, data.OrderFilter{Status: "cancelled", Query: "snapshot"}); listErr != nil || total != 1 {
 		t.Fatalf("admin filter total=%d err=%v", total, listErr)
 	}
+
+	// A stock-adjustment replay must report live inventory, not the original
+	// stock_after value. Change stock between the first call and the replay.
+	adjustmentKey := "4d0f1c2a-7b3e-4f5a-8c9d-1e2f3a4b5c6d"
+	adjustment := data.StockAdjustmentInput{Delta: -1, Reason: "damaged", IdempotencyKey: adjustmentKey}
+	firstAdjustment, err := store.AdjustProductStock(ctx, 12, 1, adjustment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstAdjustment.Replayed || firstAdjustment.Stock != 1 {
+		t.Fatalf("first adjustment=%+v, want stock 1 and no replay", firstAdjustment)
+	}
+	postAdjustmentInput := data.CreateOrderInput{RecipientName: "B", Phone: "1", ShippingAddress: "A", Items: []data.OrderLineInput{{ProductID: 12, Quantity: 1}}}
+	if _, _, err = store.CreateOrder(ctx, 1, "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", postAdjustmentInput); err != nil {
+		t.Fatal(err)
+	}
+	replayedAdjustment, err := store.AdjustProductStock(ctx, 12, 1, adjustment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var currentStock int
+	var currentVersion int64
+	if err = lease.conn.QueryRowContext(ctx, `SELECT stock, stock_version FROM products WHERE id=12`).Scan(&currentStock, &currentVersion); err != nil {
+		t.Fatal(err)
+	}
+	if !replayedAdjustment.Replayed || currentStock != 0 || replayedAdjustment.Stock != currentStock || replayedAdjustment.StockVersion != currentVersion {
+		t.Fatalf("replayed adjustment=%+v current stock=%d version=%d", replayedAdjustment, currentStock, currentVersion)
+	}
+	var auditStockAfter int
+	if err = lease.conn.QueryRowContext(ctx, `SELECT stock_after FROM stock_adjustments WHERE actor_user_id=1 AND idempotency_key=?`, adjustmentKey).Scan(&auditStockAfter); err != nil || auditStockAfter != 1 {
+		t.Fatalf("audit stock_after=%d err=%v; replay must not rewrite history", auditStockAfter, err)
+	}
+
 	if err = lease.assertWritable(ctx); err != nil {
 		t.Fatalf("integration schema lifecycle lost lock or schema after operations: %v", err)
 	}

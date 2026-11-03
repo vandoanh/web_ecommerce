@@ -347,15 +347,28 @@ func (c *StoreController) AdminProducts(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, data.ProductList{Items: products})
 }
 
+func writeProductError(ctx *gin.Context, err error) {
+	switch {
+	case errors.Is(err, repository.ErrInvalidProductInput):
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid product details"})
+	case errors.Is(err, repository.ErrInvalidDiscountSchedule):
+		ctx.JSON(http.StatusUnprocessableEntity, gin.H{"error": "discount price and schedule are invalid"})
+	case errors.Is(err, repository.ErrSKUConflict):
+		ctx.JSON(http.StatusConflict, gin.H{"error": "SKU already exists", "code": "SKU_CONFLICT"})
+	default:
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not save product"})
+	}
+}
+
 func (c *StoreController) CreateProduct(ctx *gin.Context) {
 	var input data.CreateProductInput
 	if err := ctx.ShouldBindJSON(&input); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid SKU, name, price and stock are required"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid product name and price are required"})
 		return
 	}
 	product, err := c.store.CreateProduct(ctx.Request.Context(), input)
 	if err != nil {
-		ctx.JSON(http.StatusConflict, gin.H{"error": "SKU already exists or product could not be saved"})
+		writeProductError(ctx, err)
 		return
 	}
 	ctx.JSON(http.StatusCreated, product)
@@ -368,7 +381,7 @@ func (c *StoreController) UpdateProduct(ctx *gin.Context) {
 	}
 	var input data.CreateProductInput
 	if err := ctx.ShouldBindJSON(&input); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid SKU, name, price and stock are required"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid product name and price are required"})
 		return
 	}
 	product, err := c.store.UpdateProduct(ctx.Request.Context(), id, input)
@@ -377,7 +390,7 @@ func (c *StoreController) UpdateProduct(ctx *gin.Context) {
 		return
 	}
 	if err != nil {
-		ctx.JSON(http.StatusConflict, gin.H{"error": "SKU already exists or product could not be saved"})
+		writeProductError(ctx, err)
 		return
 	}
 	ctx.JSON(http.StatusOK, product)
@@ -390,6 +403,9 @@ func (c *StoreController) DeleteProduct(ctx *gin.Context) {
 	}
 	if err := c.store.DeleteProduct(ctx.Request.Context(), id); errors.Is(err, repository.ErrProductNotFound) {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
+		return
+	} else if errors.Is(err, repository.ErrProductHasStockHistory) {
+		ctx.JSON(http.StatusConflict, gin.H{"error": "product has stock adjustment history and cannot be deleted"})
 		return
 	} else if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not delete product"})
