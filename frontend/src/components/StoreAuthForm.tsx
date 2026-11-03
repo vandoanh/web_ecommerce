@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { BrandLogo } from "@/components/BrandLogo";
 import { SharedFooter } from "@/components/SharedChrome";
-import { ClientMenu } from "@/components/ClientMenu";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -50,7 +49,6 @@ export function StoreAuthForm({ mode }: { mode: "login" | "register" }) {
       <Link className="store-brand" href="/">
         <BrandLogo size={120} className="store-auth-logo" />
       </Link>
-      <ClientMenu />
       <section className="store-auth-card">
         <span className="store-kicker">TÀI KHOẢN KHÁCH HÀNG</span>
         <h1>{mode === "login" ? "Chào mừng bạn trở lại" : "Tạo tài khoản mua sắm"}</h1>

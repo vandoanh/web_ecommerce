@@ -25,6 +25,8 @@ import {
   type CheckoutSubmissionOutcome,
 } from "@/lib/checkout";
 import { storeApi, type Category, type CreateOrderPayload, type Product } from "@/lib/store";
+import { categoryTabs, foodGroupMatchesCategory, matchingFoodGroup } from "@/lib/catalog";
+import { foodPlaceholder, imageFallback } from "@/lib/image-fallback";
 import "./store.css";
 
 const money = (amount: number) =>
@@ -39,7 +41,7 @@ export default function StorefrontPage() {
   const [cartReady, setCartReady] = useState(false);
   const [cartUnavailable, setCartUnavailable] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [category, setCategory] = useState<number | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -69,9 +71,14 @@ export default function StorefrontPage() {
     : false;
   const total = cart.reduce((sum, product) => sum + product.priceVnd * quantities[product.id], 0);
   const cartCount = cart.reduce((count, product) => count + quantities[product.id], 0);
+  const tabs = categoryTabs(categories);
   const menuProducts = products.filter((product) => {
     if (category === null) return true;
-    return product.categories?.some((item) => item.id === category) ?? false;
+    if (category.startsWith("group:")) {
+      const groupId = category.slice("group:".length);
+      return product.categories?.some((item) => foodGroupMatchesCategory(groupId, item)) ?? false;
+    }
+    return product.categories?.some((item) => String(item.id) === category) ?? false;
   });
 
   useEffect(() => {
@@ -146,7 +153,7 @@ export default function StorefrontPage() {
         setCategories(categoryList.items);
       })
       .catch((reason: unknown) =>
-        setError(reason instanceof Error ? reason.message : "Không tải được sản phẩm."),
+        setError(reason instanceof Error ? reason.message : "Không tải được dữ liệu cửa hàng."),
       )
       .finally(() => setLoading(false));
   }, []);
@@ -384,8 +391,8 @@ export default function StorefrontPage() {
   return (
     <main className="store-page store-home">
       <div className="store-topbar">
-        <span>ĐẶC SẢN GIÒ CHẢ &amp; PA-TÊ · HƯƠNG VỊ QUEN THUỘC</span>
-        <span>Đặt hàng trực tuyến · Giao tận nhà</span>
+        <span>TUẤN KHANG · DANH MỤC VÀ SẢN PHẨM</span>
+        <span>Thanh toán khi nhận hàng (COD)</span>
       </div>
       <SharedHeader
         className="store-home-header"
@@ -435,32 +442,32 @@ export default function StorefrontPage() {
         <div className="store-hero-copy">
           <span className="store-kicker">HƯƠNG VỊ TRUYỀN THỐNG · CHỌN MÓN NGON</span>
           <h1>
-            Giò chả thơm ngon,
+            Bánh mì Tuấn Khang,
             <br />
-            <em>trọn vị bữa cơm nhà.</em>
+            <em>cùng món ngon thân thuộc.</em>
           </h1>
           <p>
-            Thưởng thức giò lụa, giò bò, chả quế và pa-tê — những món ngon thân thuộc cho mâm cơm
-            gia đình.
+            Khám phá các sản phẩm trong danh mục Tuấn Khang. Thông tin món ăn và giá hiển thị theo
+            dữ liệu cửa hàng.
           </p>
           <div className="store-hero-actions">
             <a className="store-hero-button" href="#products">
               Khám phá thực đơn <span>↗</span>
             </a>
             <span className="store-hero-note">
-              <b>✳</b> Gói trọn vị ngon mỗi ngày
+              <b>✳</b> Thanh toán khi nhận hàng
             </span>
           </div>
           <div className="store-hero-rating">
             <span className="store-rating-mark">✳</span>
-            <span>Giò lụa · Giò bò · Chả quế · Pa-tê</span>
+            <span>Bánh mì · Pâté · Sốt · Giò lụa · Giò tai · Thịt nguội</span>
           </div>
         </div>
-        <div className="store-hero-visual" aria-label="Món ăn đặc sản giò chả">
+        <div className="store-hero-visual" aria-label="Hình minh họa bố cục cửa hàng">
           <div className="store-hero-image-wrap">
             <Image
-              src="https://images.unsplash.com/photo-1544025162-d76694265947?w=1000&auto=format&fit=crop&q=85"
-              alt="Mâm món ăn nóng hổi cho bữa cơm gia đình"
+              src="/food-placeholder.svg"
+              alt="Ảnh minh họa thay thế — cần thay bằng ảnh sản phẩm được cấp quyền"
               width={1000}
               height={1000}
               priority
@@ -468,21 +475,21 @@ export default function StorefrontPage() {
             />
           </div>
           <div className="store-hero-seal">
-            <span>VỊ NGON</span>
+            <span>MINH HỌA</span>
             <b>
-              TỪ
+              ẢNH
               <br />
               TÂM
             </b>
           </div>
           <div className="store-hero-floating">
-            <span>GỢI Ý HÔM NAY</span>
+            <span>ẢNH MINH HỌA</span>
             <b>
-              Giò lụa
+              Hình ảnh
               <br />
-              truyền thống
+              thay thế
             </b>
-            <i>145.000₫</i>
+            <i>Thay bằng ảnh được duyệt</i>
           </div>
           <span className="store-hero-spark store-hero-spark-one">✳</span>
           <span className="store-hero-spark store-hero-spark-two">✦</span>
@@ -493,22 +500,22 @@ export default function StorefrontPage() {
         <article>
           <span>♨</span>
           <div>
-            <b>Đậm đà vị truyền thống</b>
-            <small>Món ngon quen thuộc mỗi ngày</small>
+            <b>Thông tin sản phẩm</b>
+            <small>Hiển thị từ dữ liệu cửa hàng</small>
           </div>
         </article>
         <article>
           <span>✿</span>
           <div>
-            <b>Chọn món dễ dàng</b>
-            <small>Giò chả và pa-tê trong một nơi</small>
+            <b>Danh mục rõ ràng</b>
+            <small>Bánh mì và các món đi kèm</small>
           </div>
         </article>
         <article>
           <span>⌂</span>
           <div>
-            <b>Đặt hàng tiện lợi</b>
-            <small>Giao đến tận nhà bạn</small>
+            <b>Thanh toán COD</b>
+            <small>Thanh toán khi nhận hàng</small>
           </div>
         </article>
       </section>
@@ -518,15 +525,16 @@ export default function StorefrontPage() {
           <div>
             <span className="store-kicker">MÓN NGON MỖI NGÀY</span>
             <h2>
-              Thực đơn <em>nhà làm</em>
+              Danh mục <em>sản phẩm</em>
             </h2>
-            <p>Chọn món yêu thích để bữa cơm thêm đủ đầy.</p>
+            <p>Chọn danh mục để xem các sản phẩm hiện có.</p>
           </div>
-          <div className="store-menu-tabs" aria-label="Lọc theo loại món">
-            {[{ id: null, name: "Tất cả món" }, ...categories].map((item) => (
+          <div className="store-menu-tabs" aria-label="Lọc theo danh mục">
+            {tabs.map((item) => (
               <button
                 className={category === item.id ? "active" : ""}
                 key={item.id ?? "all"}
+                aria-pressed={category === item.id}
                 onClick={() => setCategory(item.id)}
                 type="button"
               >
@@ -603,14 +611,37 @@ export default function StorefrontPage() {
                 >
                   <div className="store-product-image">
                     <Image
-                      src={product.imageUrl}
-                      alt={product.name}
+                      src={product.imageUrl || foodPlaceholder}
+                      alt={
+                        product.imageUrl
+                          ? product.name
+                          : `Ảnh minh họa thay thế cho ${product.name}`
+                      }
                       width={640}
                       height={640}
                       unoptimized
+                      onError={(event) => {
+                        const image = event.currentTarget;
+                        const fallback = imageFallback(
+                          image.src.split("?")[0].split("#")[0].replace(window.location.origin, ""),
+                        );
+                        if (fallback) {
+                          image.dataset.fallbackUsed = "true";
+                          image.src = fallback;
+                          image.alt = `Ảnh minh họa thay thế cho ${product.name}`;
+                        }
+                      }}
                     />
+                    <span className="store-image-illustrative-label">
+                      {product.imageUrl
+                        ? "ẢNH SẢN PHẨM · THAY BẰNG ẢNH MINH HỌA NẾU LỖI"
+                        : "ẢNH MINH HỌA"}
+                    </span>
                     <span className="store-product-tag">
-                      {product.name.toLowerCase().includes("pa-tê") ? "PA-TÊ" : "ĐẶC SẢN"}
+                      {product.categories?.[0]
+                        ? (matchingFoodGroup(product.categories[0])?.name ??
+                          product.categories[0].name)
+                        : "SẢN PHẨM"}
                     </span>
                     <span className="store-stock-tag">CÒN {product.stock}</span>
                   </div>
@@ -668,40 +699,37 @@ export default function StorefrontPage() {
       <section className="store-story" id="about">
         <div className="store-story-mark">TK</div>
         <div>
-          <span className="store-kicker">BỮA CƠM NHÀ THÊM TRÒN VỊ</span>
+          <span className="store-kicker">TUẤN KHANG</span>
           <h2>
-            Món ngon thân thuộc,
+            Danh mục sản phẩm,
             <br />
-            <em>gắn kết những yêu thương.</em>
+            <em>thông tin rõ ràng.</em>
           </h2>
-          <p>
-            Tuấn Khang mang đến những món giò chả, pa-tê quen thuộc để bạn dễ dàng chuẩn bị bữa ăn
-            ngon cho gia đình.
-          </p>
+          <p>Danh sách sản phẩm, giá và tình trạng hàng được lấy từ dữ liệu cửa hàng hiện có.</p>
           <a href="#products">
             Xem thực đơn <span>↗</span>
           </a>
         </div>
         <div className="store-story-image">
           <Image
-            src="https://images.unsplash.com/photo-1547592180-85f173990554?w=900&auto=format&fit=crop&q=85"
-            alt="Bữa ăn được bày biện ấm cúng"
+            src="/food-placeholder.svg"
+            alt="Ảnh minh họa thay thế — cần thay bằng ảnh sản phẩm được cấp quyền"
             width={900}
             height={700}
             unoptimized
           />
           <span>
-            NGON TỪ
+            ẢNH
             <br />
-            BỮA CƠM NHÀ
+            MINH HỌA
           </span>
         </div>
       </section>
 
       <section className="store-order-banner">
         <div>
-          <span className="store-kicker">HÔM NAY ĂN GÌ?</span>
-          <h2>Chọn món ngon cho bữa cơm nhà.</h2>
+          <span className="store-kicker">TUẤN KHANG</span>
+          <h2>Chọn sản phẩm trong danh mục cửa hàng.</h2>
         </div>
         <a href="#products">
           Đặt món ngay <span>↗</span>
@@ -733,8 +761,8 @@ export default function StorefrontPage() {
             >
               ×
             </button>
-            <span className="store-kicker">HOÀN TẤT ĐƠN HÀNG</span>
-            <h2 id="checkout-heading">Thông tin giao hàng</h2>
+            <span className="store-kicker">THANH TOÁN KHI NHẬN HÀNG</span>
+            <h2 id="checkout-heading">Thông tin giao hàng · COD</h2>
             {error && (
               <p className="store-message store-error" role="alert">
                 {error}
@@ -864,6 +892,9 @@ export default function StorefrontPage() {
                     <strong>{money(total)}</strong>
                   </p>
                 </div>
+                <p className="store-checkout-cod">
+                  Phương thức thanh toán: tiền mặt khi nhận hàng (COD).
+                </p>
                 <form onSubmit={checkout} className="store-checkout-form">
                   <label>
                     Người nhận

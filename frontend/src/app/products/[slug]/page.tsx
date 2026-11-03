@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { loadStoreCart } from "@/lib/cart";
 import { productIdFromSlug, productSlug } from "@/lib/product-url";
 import { storeApi, type CartItem, type Product } from "@/lib/store";
+import { foodPlaceholder, imageFallback } from "@/lib/image-fallback";
 import "../../store.css";
 
 const money = (amount: number) =>
@@ -28,6 +29,8 @@ export default function ProductDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
+  const [failedImages, setFailedImages] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let canceled = false;
@@ -92,6 +95,11 @@ export default function ProductDetailPage() {
   const productImages = product
     ? Array.from(new Set([product.imageUrl, ...(product.images ?? [])].filter(Boolean)))
     : [];
+  const galleryImages = productImages.length ? productImages : [foodPlaceholder];
+
+  function changeGalleryImage(direction: -1 | 1) {
+    setActiveImage((index) => (index + direction + galleryImages.length) % galleryImages.length);
+  }
 
   return (
     <main className="store-page store-product-detail-page">
@@ -124,29 +132,65 @@ export default function ProductDetailPage() {
         ) : product ? (
           <section className="store-product-detail">
             <div className="store-product-detail-gallery">
-              <div className="store-product-detail-image">
+              <div
+                className="store-product-detail-image"
+                role="region"
+                aria-roledescription="carousel"
+                aria-label="Thư viện ảnh sản phẩm"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowLeft") changeGalleryImage(-1);
+                  if (event.key === "ArrowRight") changeGalleryImage(1);
+                }}
+                onTouchStart={(event) =>
+                  setTouchStart({
+                    x: event.changedTouches[0].clientX,
+                    y: event.changedTouches[0].clientY,
+                  })
+                }
+                onTouchEnd={(event) => {
+                  if (!touchStart) return;
+                  const deltaX = event.changedTouches[0].clientX - touchStart.x;
+                  const deltaY = event.changedTouches[0].clientY - touchStart.y;
+                  if (Math.abs(deltaX) > 45 && Math.abs(deltaX) > Math.abs(deltaY)) {
+                    changeGalleryImage(deltaX < 0 ? 1 : -1);
+                  }
+                  setTouchStart(null);
+                }}
+              >
                 <Image
-                  src={productImages[activeImage] ?? product.imageUrl}
-                  alt={product.name}
+                  src={
+                    failedImages.has(galleryImages[activeImage])
+                      ? foodPlaceholder
+                      : galleryImages[activeImage]
+                  }
+                  alt={
+                    productImages.length && !failedImages.has(galleryImages[activeImage])
+                      ? `${product.name}, ảnh ${activeImage + 1}`
+                      : `Ảnh minh họa thay thế cho ${product.name}`
+                  }
                   width={1000}
                   height={1000}
                   unoptimized
                   priority
+                  onError={() => {
+                    const failedImage = galleryImages[activeImage];
+                    if (imageFallback(failedImage))
+                      setFailedImages((current) => new Set(current).add(failedImage));
+                  }}
                 />
                 <span>
-                  {product.name.toLowerCase().includes("pa-tê") ? "PA-TÊ" : "ĐẶC SẢN TUẤN KHANG"}
+                  {productImages.length && !failedImages.has(galleryImages[activeImage])
+                    ? "TUẤN KHANG"
+                    : "ẢNH MINH HỌA · CẦN THAY THẾ"}
                 </span>
-                {productImages.length > 1 && (
+                {galleryImages.length > 1 && (
                   <>
                     <button
                       className="store-gallery-arrow previous"
                       type="button"
                       aria-label="Ảnh trước"
-                      onClick={() =>
-                        setActiveImage(
-                          (index) => (index - 1 + productImages.length) % productImages.length,
-                        )
-                      }
+                      onClick={() => changeGalleryImage(-1)}
                     >
                       ‹
                     </button>
@@ -154,28 +198,38 @@ export default function ProductDetailPage() {
                       className="store-gallery-arrow next"
                       type="button"
                       aria-label="Ảnh tiếp theo"
-                      onClick={() => setActiveImage((index) => (index + 1) % productImages.length)}
+                      onClick={() => changeGalleryImage(1)}
                     >
                       ›
                     </button>
                     <span className="store-gallery-count">
-                      {activeImage + 1} / {productImages.length}
+                      {activeImage + 1} / {galleryImages.length}
                     </span>
                   </>
                 )}
               </div>
-              {productImages.length > 1 && (
+              {galleryImages.length > 1 && (
                 <div className="store-product-thumbnails" aria-label="Ảnh sản phẩm">
-                  {productImages.map((image, index) => (
+                  {galleryImages.map((image, index) => (
                     <button
                       key={`${image}-${index}`}
                       type="button"
-                      aria-label={`Xem ảnh ${index + 1}`}
+                      aria-label={`Xem ảnh ${index + 1}${productImages.length ? "" : " minh họa"}`}
                       aria-pressed={activeImage === index}
                       className={activeImage === index ? "active" : ""}
                       onClick={() => setActiveImage(index)}
                     >
-                      <Image src={image} alt="" width={100} height={80} unoptimized />
+                      <Image
+                        src={failedImages.has(image) ? foodPlaceholder : image}
+                        alt=""
+                        width={100}
+                        height={80}
+                        unoptimized
+                        onError={() => {
+                          if (imageFallback(image))
+                            setFailedImages((current) => new Set(current).add(image));
+                        }}
+                      />
                     </button>
                   ))}
                 </div>
@@ -198,11 +252,7 @@ export default function ProductDetailPage() {
               </p>
               {product.description ? (
                 <SafeHtml className="store-product-detail-description" html={product.description} />
-              ) : (
-                <p className="store-product-detail-description">
-                  Món ngon truyền thống, thích hợp cho bữa cơm gia đình.
-                </p>
-              )}
+              ) : null}
               <div className="store-product-detail-quantity">
                 <span>Số lượng</span>
                 <div>
