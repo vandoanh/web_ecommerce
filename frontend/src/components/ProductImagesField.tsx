@@ -45,7 +45,11 @@ export function ProductImagesField({ token, images, onChange }: ProductImagesFie
     <div className="admin-product-images">
       <div className="admin-product-images-heading">
         <span>{images.length ? `${images.length} ảnh đã tải lên` : "Chưa có ảnh tải lên"}</span>
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading || images.length >= 10}>
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading || images.length >= 10}
+        >
           {uploading ? "Đang tải ảnh…" : "Chọn ảnh"}
         </button>
         <input
@@ -58,12 +62,22 @@ export function ProductImagesField({ token, images, onChange }: ProductImagesFie
         />
       </div>
       <small>JPEG, PNG, WebP hoặc GIF · tối đa 8 MB mỗi ảnh · tối đa 10 ảnh/sản phẩm</small>
-      {error && <p className="admin-image-error" role="alert">{error}</p>}
+      {error && (
+        <p className="admin-image-error" role="alert">
+          {error}
+        </p>
+      )}
       {images.length > 0 && (
         <div className="admin-product-image-grid">
           {images.map((image, index) => (
             <figure key={`${image}-${index}`}>
-              <Image src={image} alt={`Ảnh sản phẩm ${index + 1}`} width={120} height={90} unoptimized />
+              <Image
+                src={image}
+                alt={`Ảnh sản phẩm ${index + 1}`}
+                width={120}
+                height={90}
+                unoptimized
+              />
               <button
                 type="button"
                 aria-label={`Xóa ảnh ${index + 1}`}

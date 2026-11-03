@@ -29,14 +29,14 @@ type CategoryInput struct {
 }
 
 type CreateProductInput struct {
-	SKU         string  `json:"sku" binding:"required,max=64"`
-	Name        string  `json:"name" binding:"required,max=255"`
-	Description string  `json:"description"`
-	ImageURL    string  `json:"imageUrl"`
+	SKU         string   `json:"sku" binding:"required,max=64"`
+	Name        string   `json:"name" binding:"required,max=255"`
+	Description string   `json:"description"`
+	ImageURL    string   `json:"imageUrl"`
 	ImageURLs   []string `json:"imageUrls"`
-	PriceVND    int64   `json:"priceVnd" binding:"required,gt=0"`
-	Stock       int     `json:"stock" binding:"gte=0"`
-	CategoryIDs []int64 `json:"categoryIds"`
+	PriceVND    int64    `json:"priceVnd" binding:"required,gt=0"`
+	Stock       int      `json:"stock" binding:"gte=0"`
+	CategoryIDs []int64  `json:"categoryIds"`
 }
 
 type CategoryList struct {
@@ -65,7 +65,7 @@ type CreateOrderInput struct {
 	RecipientName   string           `json:"recipientName" binding:"required,max=255"`
 	Phone           string           `json:"phone" binding:"required,max=32"`
 	ShippingAddress string           `json:"shippingAddress" binding:"required,max=2000"`
-	Items           []OrderLineInput `json:"items" binding:"required,min=1,dive"`
+	Items           []OrderLineInput `json:"items" binding:"required,min=1,max=100,dive"`
 }
 
 type OrderItem struct {
@@ -82,11 +82,20 @@ type Order struct {
 	CustomerName    string      `json:"customerName,omitempty"`
 	TotalVND        int64       `json:"totalVnd"`
 	Status          string      `json:"status"`
+	PaymentMethod   string      `json:"paymentMethod"`
 	RecipientName   string      `json:"recipientName"`
 	Phone           string      `json:"phone"`
 	ShippingAddress string      `json:"shippingAddress"`
 	Items           []OrderItem `json:"items"`
 	CreatedAt       time.Time   `json:"createdAt"`
+}
+
+// OrderPage is the paginated order list envelope shared by customer and admin APIs.
+type OrderPage struct {
+	Items    []Order `json:"items"`
+	Page     int     `json:"page"`
+	PageSize int     `json:"pageSize"`
+	Total    int64   `json:"total"`
 }
 
 type DashboardStats struct {

@@ -4,14 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"time"
 
 	"github.com/example/youtube-dashboard-go-next/backend/controller/repository"
 	"github.com/example/youtube-dashboard-go-next/backend/data"
 )
-
-var ErrProductUnavailable = errors.New("one or more products are unavailable or out of stock")
 
 type StoreModel struct{ db *sql.DB }
 
@@ -276,100 +272,6 @@ func (m *StoreModel) DeleteProduct(ctx context.Context, id int64) error {
 		return repository.ErrProductNotFound
 	}
 	return err
-}
-
-func (m *StoreModel) CreateOrder(ctx context.Context, userID int64, input data.CreateOrderInput) (data.Order, error) {
-	tx, err := m.db.BeginTx(ctx, nil)
-	if err != nil {
-		return data.Order{}, err
-	}
-	defer tx.Rollback()
-	order := data.Order{UserID: userID, Status: "pending", RecipientName: input.RecipientName, Phone: input.Phone, ShippingAddress: input.ShippingAddress, Items: []data.OrderItem{}}
-	for _, line := range input.Items {
-		var item data.OrderItem
-		var stock int
-		err = tx.QueryRowContext(ctx, `SELECT id, name, price_vnd, stock FROM products WHERE id = ? AND is_active = TRUE FOR UPDATE`, line.ProductID).
-			Scan(&item.ProductID, &item.ProductName, &item.UnitPriceVND, &stock)
-		if err != nil || stock < line.Quantity {
-			return data.Order{}, ErrProductUnavailable
-		}
-		item.Quantity = line.Quantity
-		order.TotalVND += item.UnitPriceVND * int64(item.Quantity)
-		order.Items = append(order.Items, item)
-		if _, err = tx.ExecContext(ctx, `UPDATE products SET stock = stock - ? WHERE id = ?`, line.Quantity, line.ProductID); err != nil {
-			return data.Order{}, err
-		}
-	}
-	order.OrderNumber = fmt.Sprintf("ORD-%d", time.Now().UnixNano())
-	result, err := tx.ExecContext(ctx, `INSERT INTO orders (order_number, user_id, total_vnd, status, recipient_name, phone, shipping_address) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		order.OrderNumber, order.UserID, order.TotalVND, order.Status, order.RecipientName, order.Phone, order.ShippingAddress)
-	if err != nil {
-		return data.Order{}, err
-	}
-	order.ID, err = result.LastInsertId()
-	if err != nil {
-		return data.Order{}, err
-	}
-	for _, item := range order.Items {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price_vnd) VALUES (?, ?, ?, ?, ?)`, order.ID, item.ProductID, item.ProductName, item.Quantity, item.UnitPriceVND); err != nil {
-			return data.Order{}, err
-		}
-	}
-	if err = tx.Commit(); err != nil {
-		return data.Order{}, err
-	}
-	order.CreatedAt = time.Now()
-	return order, nil
-}
-
-func (m *StoreModel) ListOrders(ctx context.Context, userID int64) ([]data.Order, error) {
-	query := `SELECT o.id, o.order_number, o.user_id, u.username, o.total_vnd, o.status, o.recipient_name, o.phone, o.shipping_address, o.created_at FROM orders o JOIN users u ON u.id = o.user_id`
-	args := []any{}
-	if userID > 0 {
-		query += ` WHERE o.user_id = ?`
-		args = append(args, userID)
-	}
-	query += ` ORDER BY o.created_at DESC`
-	if userID > 0 {
-		query += ` LIMIT 100`
-	}
-	rows, err := m.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	orders := []data.Order{}
-	for rows.Next() {
-		var order data.Order
-		if err := rows.Scan(&order.ID, &order.OrderNumber, &order.UserID, &order.CustomerName, &order.TotalVND, &order.Status, &order.RecipientName, &order.Phone, &order.ShippingAddress, &order.CreatedAt); err != nil {
-			return nil, err
-		}
-		order.Items = []data.OrderItem{}
-		orders = append(orders, order)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
-	}
-	for i := range orders {
-		items, err := m.db.QueryContext(ctx, `SELECT product_id, product_name, quantity, unit_price_vnd FROM order_items WHERE order_id = ? ORDER BY id`, orders[i].ID)
-		if err != nil {
-			return nil, err
-		}
-		for items.Next() {
-			var item data.OrderItem
-			if err = items.Scan(&item.ProductID, &item.ProductName, &item.Quantity, &item.UnitPriceVND); err != nil {
-				items.Close()
-				return nil, err
-			}
-			orders[i].Items = append(orders[i].Items, item)
-		}
-		if err = items.Err(); err != nil {
-			items.Close()
-			return nil, err
-		}
-		items.Close()
-	}
-	return orders, nil
 }
 
 func (m *StoreModel) DashboardStats(ctx context.Context) (data.DashboardStats, error) {

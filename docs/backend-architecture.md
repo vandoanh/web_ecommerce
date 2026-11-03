@@ -12,6 +12,6 @@ The packages follow the layering used in `mvc_golang`:
 - `route`: route registration and dependency injection.
 - `config`: environment configuration and MySQL connection.
 
-Customer and administrator accounts use separate roles and group memberships. Admin API routes require the `admin` role; customer routes require `customer`. Product stock is checked and decremented in the order transaction.
+Customer and administrator accounts use separate roles and group memberships. Admin API routes require the `admin` role; customer routes require `customer`. Product stock is checked and decremented in the order transaction. Checkout uses customer-scoped idempotency keys, paginated order queries, transactional status/cancellation updates with exactly-once stock restoration, and server-side admin order filters.
 
 Dependency flow is `route → controller → service/repository interfaces`, with concrete implementations wired in `main.go`.

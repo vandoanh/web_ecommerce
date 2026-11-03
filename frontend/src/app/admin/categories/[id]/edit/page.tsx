@@ -45,7 +45,8 @@ export default function EditCategoryPage() {
     if (invalidCategoryId) return;
 
     let canceled = false;
-    storeApi.categories()
+    storeApi
+      .categories()
       .then(({ items }) => {
         if (canceled) return;
         const found = items.find((item) => item.id === categoryId);
@@ -57,7 +58,8 @@ export default function EditCategoryPage() {
         setForm({ name: found.name, slug: found.slug, description: found.description });
       })
       .catch((reason: unknown) => {
-        if (!canceled) setError(reason instanceof Error ? reason.message : "Không tải được danh mục.");
+        if (!canceled)
+          setError(reason instanceof Error ? reason.message : "Không tải được danh mục.");
       })
       .finally(() => {
         if (!canceled) setLoading(false);
@@ -95,9 +97,15 @@ export default function EditCategoryPage() {
     <AdminShell
       active="categories"
       title="Sửa danh mục"
-      description={category ? `Cập nhật thông tin cho ${category.name}.` : "Cập nhật thông tin danh mục."}
+      description={
+        category ? `Cập nhật thông tin cho ${category.name}.` : "Cập nhật thông tin danh mục."
+      }
     >
-      {displayedError && <p className="admin-alert" role="alert">{displayedError}</p>}
+      {displayedError && (
+        <p className="admin-alert" role="alert">
+          {displayedError}
+        </p>
+      )}
       {isLoading ? (
         <p className="admin-panel">Đang tải danh mục…</p>
       ) : category ? (
@@ -114,7 +122,9 @@ export default function EditCategoryPage() {
               Tên danh mục *
               <input
                 value={form.name}
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, name: event.target.value }))
+                }
                 required
                 maxLength={120}
               />
@@ -123,7 +133,9 @@ export default function EditCategoryPage() {
               Slug *
               <input
                 value={form.slug}
-                onChange={(event) => setForm((current) => ({ ...current, slug: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, slug: event.target.value }))
+                }
                 required
                 maxLength={140}
                 pattern="[a-zA-Z0-9-]+"
@@ -134,13 +146,19 @@ export default function EditCategoryPage() {
               <textarea
                 rows={4}
                 value={form.description}
-                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, description: event.target.value }))
+                }
                 maxLength={500}
               />
             </label>
             <div className="admin-form-actions">
-              <button type="submit" disabled={busy}>{busy ? "Đang lưu…" : "Lưu thay đổi"}</button>
-              <Link className="admin-cancel-link" href="/admin/categories">Hủy</Link>
+              <button type="submit" disabled={busy}>
+                {busy ? "Đang lưu…" : "Lưu thay đổi"}
+              </button>
+              <Link className="admin-cancel-link" href="/admin/categories">
+                Hủy
+              </Link>
             </div>
           </form>
         </article>

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/example/youtube-dashboard-go-next/backend/controller"
 	"github.com/example/youtube-dashboard-go-next/backend/controller/repository"
@@ -40,6 +39,8 @@ func SetupRouter(users repository.UserRepository, store repository.StoreReposito
 	customers.Use(middleware.RequireRole("customer"))
 	customers.POST("/orders", storeController.CreateOrder)
 	customers.GET("/orders", storeController.CustomerOrders)
+	customers.GET("/orders/:orderID", storeController.CustomerOrder)
+	customers.POST("/orders/:orderID/cancel", storeController.CancelCustomerOrder)
 
 	admins := protected.Group("/admin")
 	admins.Use(middleware.RequireRole("admin"))
@@ -52,6 +53,8 @@ func SetupRouter(users repository.UserRepository, store repository.StoreReposito
 	admins.PUT("/categories/:categoryID", storeController.UpdateCategory)
 	admins.DELETE("/categories/:categoryID", storeController.DeleteCategory)
 	admins.GET("/orders", storeController.AdminOrders)
+	admins.GET("/orders/:orderID", storeController.AdminOrder)
+	admins.PATCH("/orders/:orderID/status", storeController.UpdateAdminOrderStatus)
 	admins.GET("/contacts", contactController.List)
 	admins.DELETE("/contacts/:contactID", contactController.Delete)
 	admins.POST("/product-images", storeController.UploadProductImages)
@@ -64,16 +67,33 @@ func SetupRouter(users repository.UserRepository, store repository.StoreReposito
 }
 
 func cors(origin string) gin.HandlerFunc {
+	allowedOrigin := strings.TrimSpace(origin)
+	wildcard := IsWildcardOrigin(allowedOrigin)
 	return func(ctx *gin.Context) {
-		if origin != "" {
-			ctx.Header("Access-Control-Allow-Origin", origin)
-			ctx.Header("Vary", "Origin")
+		requestOrigin := strings.TrimSpace(ctx.GetHeader("Origin"))
+		originAllowed := false
+		if allowedOrigin != "" {
+			ctx.Writer.Header().Add("Vary", "Origin")
 		}
-		ctx.Header("Access-Control-Allow-Headers", "Authorization, Content-Type")
-		ctx.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		ctx.Header("Access-Control-Allow-Credentials", "true")
-		ctx.Header("Access-Control-Max-Age", (12 * time.Hour).String())
+		switch {
+		case wildcard:
+			// A wildcard origin cannot be combined with credentials.
+			ctx.Header("Access-Control-Allow-Origin", "*")
+			originAllowed = true
+		case allowedOrigin != "" && requestOrigin != "" && strings.EqualFold(requestOrigin, allowedOrigin):
+			ctx.Header("Access-Control-Allow-Origin", allowedOrigin)
+			ctx.Header("Access-Control-Allow-Credentials", "true")
+			originAllowed = true
+		}
+		if originAllowed {
+			ctx.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, Idempotency-Key")
+			ctx.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			ctx.Header("Access-Control-Expose-Headers", "Idempotency-Replayed")
+			ctx.Header("Access-Control-Max-Age", "43200")
+		}
 		if ctx.Request.Method == http.MethodOptions {
+			ctx.Writer.Header().Add("Vary", "Access-Control-Request-Method")
+			ctx.Writer.Header().Add("Vary", "Access-Control-Request-Headers")
 			ctx.AbortWithStatus(http.StatusNoContent)
 			return
 		}

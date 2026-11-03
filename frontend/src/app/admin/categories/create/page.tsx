@@ -66,8 +66,16 @@ export default function CreateCategoryPage() {
       title="Thêm danh mục"
       description="Tạo nhóm mới để tổ chức sản phẩm trong cửa hàng."
     >
-      {error && <p className="admin-alert" role="alert">{error}</p>}
-      {notice && <p className="admin-success" role="status">{notice}</p>}
+      {error && (
+        <p className="admin-alert" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="admin-success" role="status">
+          {notice}
+        </p>
+      )}
       <article className="admin-panel admin-category-editor">
         <header>
           <div>

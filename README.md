@@ -22,11 +22,11 @@ A starter online shop with a product storefront, customer accounts, shopping car
 - `GET /api/v1/products`: list active products.
 - `GET|PUT|DELETE /api/v1/cart/:cartID`: read, save, and clear a browser cart stored in Redis.
 - `POST /api/v1/auth/register` and `POST /api/v1/auth/login`: customer registration and sign-in.
-- `POST /api/v1/orders` and `GET /api/v1/orders`: customer checkout and order history.
+- `POST /api/v1/orders` (`Idempotency-Key` UUID required), `GET /api/v1/orders?page=1&pageSize=20`, `GET /api/v1/orders/:orderID`, and `POST /api/v1/orders/:orderID/cancel`: customer checkout, paginated history, detail, and pending-order cancellation.
 - `POST /api/v1/admin/auth/login`: admin-only sign-in.
-- `GET /api/v1/admin/dashboard`, `GET|POST /api/v1/admin/products`, `GET /api/v1/admin/orders`: admin operations. Admin routes require a valid admin token.
+- `GET /api/v1/admin/dashboard`, product/category operations, `GET /api/v1/admin/orders?page=1&pageSize=20&status=pending&q=...`, and `PATCH /api/v1/admin/orders/:orderID/status`: admin operations. Admin routes require a valid admin token.
 
-Orders lock product inventory while checking stock, compute totals from database prices, and decrement inventory in the same transaction as order creation. Redis uses AOF persistence with a Docker volume; the browser stores only a random cart ID, while cart contents stay in Redis.
+Orders use COD/manual payment only. Checkout keys are scoped to the authenticated customer; repeated requests with the same key and payload replay the original order. Product inventory is locked in ascending ID order, checked and decremented in the same transaction as order creation. Cancelling a pending order restores stock atomically once. Admin order lists support server-side `status` and `q` filters. Redis uses AOF persistence with a Docker volume; the browser stores only a random cart ID, while cart contents stay in Redis.
 
 ## Checks
 

@@ -7,10 +7,24 @@ import { SafeHtml } from "@/components/SafeHtml";
 import { ClientMenu } from "@/components/ClientMenu";
 import { productHref } from "@/lib/product-url";
 import { SharedFooter, SharedHeader } from "@/components/SharedChrome";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { loadStoreCart } from "@/lib/cart";
-import { storeApi, type Category, type Product } from "@/lib/store";
+import {
+  CHECKOUT_ATTEMPT_STORAGE_KEY,
+  checkoutCartMatches,
+  checkoutOwnerFromToken,
+  clearCheckoutAttempt,
+  clearCheckoutCompletion,
+  CheckoutAttemptStorageError,
+  CheckoutLockUnavailableError,
+  inspectCheckoutAttempt,
+  runCheckoutSubmission,
+  withCheckoutLock,
+  type CheckoutAttemptState,
+  type CheckoutSubmissionOutcome,
+} from "@/lib/checkout";
+import { storeApi, type Category, type CreateOrderPayload, type Product } from "@/lib/store";
 import "./store.css";
 
 const money = (amount: number) =>
@@ -29,11 +43,30 @@ export default function StorefrontPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [checkoutState, setCheckoutState] = useState<CheckoutAttemptState>({ status: "none" });
+  const [submittingOrder, setSubmittingOrder] = useState(false);
+  const [abandonConfirm, setAbandonConfirm] = useState(false);
   const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
   const cart = useMemo(
     () => products.filter((product) => (quantities[product.id] ?? 0) > 0),
     [products, quantities],
   );
+  const cartItems = useMemo<CreateOrderPayload["items"]>(
+    () => cart.map((product) => ({ productId: product.id, quantity: quantities[product.id] })),
+    [cart, quantities],
+  );
+  const checkoutOwner = checkoutOwnerFromToken(token);
+  const refreshCheckoutState = useCallback(() => {
+    const next = inspectCheckoutAttempt(checkoutOwner);
+    setCheckoutState(next);
+    return next;
+  }, [checkoutOwner]);
+  const checkoutAttempt = checkoutState.status === "owned" ? checkoutState.attempt : null;
+  // Any persisted attempt, including one owned by another account, blocks new orders.
+  const checkoutBlocked = checkoutState.status !== "none";
+  const attemptCartChanged = checkoutAttempt
+    ? !checkoutCartMatches(checkoutAttempt, cartItems)
+    : false;
   const total = cart.reduce((sum, product) => sum + product.priceVnd * quantities[product.id], 0);
   const cartCount = cart.reduce((count, product) => count + quantities[product.id], 0);
   const menuProducts = products.filter((product) => {
@@ -72,6 +105,28 @@ export default function StorefrontPage() {
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
+    let canceled = false;
+    queueMicrotask(() => {
+      if (canceled) return;
+      setCheckoutState(inspectCheckoutAttempt(checkoutOwner));
+      setAbandonConfirm(false);
+    });
+    return () => {
+      canceled = true;
+    };
+  }, [checkoutOwner, ready]);
+
+  useEffect(() => {
+    function syncAttempt(event: StorageEvent) {
+      if (event.key !== null && event.key !== CHECKOUT_ATTEMPT_STORAGE_KEY) return;
+      refreshCheckoutState();
+    }
+    window.addEventListener("storage", syncAttempt);
+    return () => window.removeEventListener("storage", syncAttempt);
+  }, [refreshCheckoutState]);
+
+  useEffect(() => {
     if (!cartReady || !cartId || cartUnavailable) return;
     const items = Object.entries(quantities)
       .map(([productId, quantity]) => ({ productId: Number(productId), quantity }))
@@ -96,36 +151,234 @@ export default function StorefrontPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  function applyCheckoutOutcome(outcome: CheckoutSubmissionOutcome) {
+    switch (outcome.status) {
+      case "created": {
+        refreshCheckoutState();
+        setAbandonConfirm(false);
+        setQuantities({});
+        setShowCheckout(false);
+        if (outcome.reusedCompletion) {
+          setNotice(
+            `Đơn hàng đã được xác nhận trước đó ở một tab khác. Mã đơn hàng: ${outcome.orderNumber}`,
+          );
+        } else {
+          setNotice(`Đặt hàng thành công. Mã đơn hàng: ${outcome.orderNumber}`);
+        }
+        if (outcome.storageWarning) setError(outcome.storageWarning);
+        void storeApi.clearCart(cartId).catch(() => {
+          setError("Đơn đã được tạo nhưng chưa thể xóa giỏ hàng trên Redis.");
+        });
+        break;
+      }
+      case "retained": {
+        setCheckoutState({ status: "owned", attempt: outcome.attempt });
+        if (outcome.reason === "uncertain") {
+          setError(
+            "Chưa xác nhận được kết quả đơn hàng. Đơn hàng và mã chống trùng đã được giữ nguyên; hãy thử lại đúng đơn cũ hoặc hủy bỏ rõ ràng trước khi đặt giỏ khác.",
+          );
+        } else {
+          const message =
+            outcome.error instanceof Error ? outcome.error.message : "Xung đột mã đơn.";
+          setError(
+            `${message} Hãy kiểm tra mục Đơn hàng của tôi; chỉ hủy bỏ đơn chưa rõ nếu bạn chắc chắn muốn bắt đầu lại.`,
+          );
+        }
+        break;
+      }
+      case "failed": {
+        refreshCheckoutState();
+        const message =
+          outcome.error instanceof Error ? outcome.error.message : "Không thể đặt hàng.";
+        setError(outcome.storageWarning ? `${message} ${outcome.storageWarning}` : message);
+        break;
+      }
+      case "blocked": {
+        switch (outcome.reason) {
+          case "owner-mismatch":
+            setCheckoutState({ status: "owner-mismatch" });
+            setError(
+              "Trình duyệt này đang giữ một đơn chưa rõ kết quả thuộc một tài khoản khác. Nội dung đơn được ẩn để bảo vệ riêng tư; hãy kiểm tra mục Đơn hàng và chủ động hủy bỏ đơn đó trước khi đặt đơn mới.",
+            );
+            break;
+          case "payload-changed":
+            refreshCheckoutState();
+            setError(
+              "Giỏ hàng đã thay đổi so với đơn chưa rõ kết quả. Hãy thử lại đơn cũ hoặc hủy bỏ đơn đó trước khi đặt giỏ hiện tại.",
+            );
+            break;
+          case "invalid-attempt":
+            setCheckoutState({ status: "invalid" });
+            setError(
+              "Bản ghi đơn chưa rõ trên trình duyệt bị hỏng và không thể xác minh. Hệ thống không cho đặt đơn mới cho đến khi bạn chủ động xóa bản ghi đó.",
+            );
+            break;
+          case "attempt-missing":
+            refreshCheckoutState();
+            setError(
+              "Đơn chưa rõ kết quả không còn trong trình duyệt này. Hãy kiểm tra mục Đơn hàng trước khi đặt lại.",
+            );
+            break;
+          case "storage-unavailable":
+            setCheckoutState({ status: "unavailable", error: outcome.error });
+            setError(
+              "Không thể truy cập bộ nhớ cục bộ an toàn nên đơn hàng chưa được gửi. Hãy kiểm tra quyền lưu trữ của trình duyệt rồi thử lại.",
+            );
+            break;
+          case "storage-write-failed":
+            refreshCheckoutState();
+            setError(
+              "Không thể lưu đơn chưa rõ kết quả vào bộ nhớ trình duyệt nên đơn hàng chưa được gửi. Hãy giải phóng dung lượng lưu trữ rồi thử lại.",
+            );
+            break;
+          case "lock-unavailable":
+            setError(
+              "Trình duyệt không hỗ trợ khóa đặt hàng giữa các tab. Để tránh tạo đơn trùng, hệ thống chưa gửi đơn.",
+            );
+            break;
+        }
+        break;
+      }
+    }
+  }
+
+  async function runExclusiveCheckout(task: () => Promise<CheckoutSubmissionOutcome>) {
+    if (!token) return;
+    setSubmittingOrder(true);
+    setError("");
+    setNotice("");
+    try {
+      await saveQueue.current.catch(() => undefined);
+      applyCheckoutOutcome(await task());
+    } catch (reason) {
+      if (reason instanceof CheckoutAttemptStorageError) {
+        refreshCheckoutState();
+        setError(
+          "Không thể lưu hoặc đọc bản ghi đơn hàng trên trình duyệt nên đơn hàng chưa được gửi.",
+        );
+      } else if (reason instanceof CheckoutLockUnavailableError) {
+        setError(
+          "Trình duyệt không hỗ trợ khóa đặt hàng giữa các tab. Để tránh tạo đơn trùng, hệ thống chưa gửi đơn.",
+        );
+      } else {
+        setError(reason instanceof Error ? reason.message : "Không thể đặt hàng.");
+      }
+    } finally {
+      setSubmittingOrder(false);
+    }
+  }
+
   async function checkout(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return;
     const form = new FormData(event.currentTarget);
+    const payload: CreateOrderPayload = {
+      recipientName: String(form.get("recipientName")),
+      phone: String(form.get("phone")),
+      shippingAddress: String(form.get("shippingAddress")),
+      items: cartItems,
+    };
+    await runExclusiveCheckout(() =>
+      runCheckoutSubmission({
+        owner: checkoutOwner,
+        payload,
+        submit: (attempt) => storeApi.createOrder(token, attempt.payload, attempt.idempotencyKey),
+      }),
+    );
+  }
+
+  function retryCheckoutAttempt() {
+    if (!checkoutAttempt || !token) return;
+    const attempt = checkoutAttempt;
+    void runExclusiveCheckout(() =>
+      runCheckoutSubmission({
+        owner: checkoutOwner,
+        payload: attempt.payload,
+        mode: "retry",
+        submit: (persisted) =>
+          storeApi.createOrder(token, persisted.payload, persisted.idempotencyKey),
+      }),
+    );
+  }
+
+  async function abandonCheckoutAttempt() {
+    setSubmittingOrder(true);
     setError("");
     setNotice("");
     try {
-      await saveQueue.current;
-      const order = await storeApi.createOrder(token, {
-        recipientName: String(form.get("recipientName")),
-        phone: String(form.get("phone")),
-        shippingAddress: String(form.get("shippingAddress")),
-        items: cart.map((product) => ({ productId: product.id, quantity: quantities[product.id] })),
+      const wasMismatched = checkoutState.status === "owner-mismatch";
+      await withCheckoutLock(() => {
+        clearCheckoutAttempt();
+        if (!wasMismatched) clearCheckoutCompletion();
       });
-      setQuantities({});
-      setShowCheckout(false);
-      setNotice(`Đặt hàng thành công. Mã đơn hàng: ${order.orderNumber}`);
-      await storeApi.clearCart(cartId).catch(() => {
-        setError("Đơn đã được tạo nhưng chưa thể xóa giỏ hàng trên Redis.");
-      });
+      setCheckoutState({ status: "none" });
+      setAbandonConfirm(false);
+      setNotice(
+        "Đã hủy bỏ đơn chưa rõ kết quả. Hãy kiểm tra mục Đơn hàng trước khi đặt lại để tránh trùng đơn.",
+      );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Không thể đặt hàng.");
+      refreshCheckoutState();
+      if (reason instanceof CheckoutLockUnavailableError) {
+        setError(
+          "Trình duyệt không hỗ trợ khóa đặt hàng giữa các tab nên chưa thể xóa đơn chưa rõ một cách an toàn.",
+        );
+      } else if (reason instanceof CheckoutAttemptStorageError) {
+        setError("Không thể xóa bản ghi đơn hàng trên trình duyệt. Hãy kiểm tra quyền lưu trữ.");
+      } else {
+        setError(reason instanceof Error ? reason.message : "Không thể hủy bỏ đơn chưa rõ.");
+      }
+    } finally {
+      setSubmittingOrder(false);
     }
   }
 
   function changeQuantity(product: Product, delta: number) {
+    if (checkoutBlocked) {
+      setShowCheckout(true);
+      return;
+    }
     setQuantities((current) => {
       const next = Math.min(99, product.stock, Math.max(0, (current[product.id] ?? 0) + delta));
       return { ...current, [product.id]: next };
     });
+  }
+
+  function abandonControls(warning: React.ReactNode) {
+    if (!abandonConfirm) {
+      return (
+        <button
+          className="store-checkout-secondary store-checkout-danger"
+          type="button"
+          disabled={submittingOrder}
+          onClick={() => setAbandonConfirm(true)}
+        >
+          Hủy bỏ đơn chưa rõ
+        </button>
+      );
+    }
+    return (
+      <div className="store-checkout-abandon" role="alert">
+        <p>{warning}</p>
+        <div className="store-checkout-actions">
+          <button
+            className="store-checkout-secondary store-checkout-danger"
+            type="button"
+            disabled={submittingOrder}
+            onClick={() => void abandonCheckoutAttempt()}
+          >
+            Tôi hiểu, hủy bỏ và bắt đầu lại
+          </button>
+          <button
+            className="store-checkout-secondary"
+            type="button"
+            disabled={submittingOrder}
+            onClick={() => setAbandonConfirm(false)}
+          >
+            Giữ lại đơn cũ
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -292,6 +545,51 @@ export default function StorefrontPage() {
             {notice}
           </p>
         )}
+        {checkoutAttempt && (
+          <p className="store-message store-warning" role="status">
+            Có một đơn hàng chưa xác nhận được kết quả. Giỏ hàng đang tạm khóa để tránh tạo đơn
+            trùng.{" "}
+            <button
+              className="store-inline-action"
+              type="button"
+              onClick={() => setShowCheckout(true)}
+            >
+              Xử lý đơn chưa rõ
+            </button>
+          </p>
+        )}
+        {checkoutState.status === "owner-mismatch" && (
+          <p className="store-message store-warning" role="status">
+            Có một đơn hàng chưa rõ kết quả thuộc tài khoản khác trên trình duyệt này. Nội dung được
+            ẩn để bảo vệ riêng tư và giỏ hàng đang tạm khóa.{" "}
+            <button
+              className="store-inline-action"
+              type="button"
+              onClick={() => setShowCheckout(true)}
+            >
+              Xử lý đơn chưa rõ
+            </button>
+          </p>
+        )}
+        {checkoutState.status === "invalid" && (
+          <p className="store-message store-warning" role="status">
+            Bản ghi đơn hàng chưa rõ trên trình duyệt bị hỏng. Giỏ hàng đang tạm khóa cho đến khi
+            bạn chủ động xóa bản ghi đó.{" "}
+            <button
+              className="store-inline-action"
+              type="button"
+              onClick={() => setShowCheckout(true)}
+            >
+              Xử lý
+            </button>
+          </p>
+        )}
+        {checkoutState.status === "unavailable" && (
+          <p className="store-message store-error" role="alert">
+            Không thể đọc bộ nhớ cục bộ an toàn nên hệ thống không thể xác minh đơn hàng trước khi
+            đặt.
+          </p>
+        )}
         {loading ? (
           <p className="store-empty">Đang tải thực đơn…</p>
         ) : (
@@ -331,6 +629,7 @@ export default function StorefrontPage() {
                       <div className="store-quantity">
                         <button
                           aria-label={`Giảm ${product.name}`}
+                          disabled={checkoutBlocked}
                           onClick={() => changeQuantity(product, -1)}
                         >
                           −
@@ -338,6 +637,7 @@ export default function StorefrontPage() {
                         <span>{quantities[product.id]}</span>
                         <button
                           aria-label={`Thêm ${product.name}`}
+                          disabled={checkoutBlocked}
                           onClick={() => changeQuantity(product, 1)}
                         >
                           +
@@ -346,7 +646,9 @@ export default function StorefrontPage() {
                     ) : (
                       <button
                         className="store-add-button"
-                        disabled={product.stock < 1 || !cartReady || cartUnavailable}
+                        disabled={
+                          product.stock < 1 || !cartReady || cartUnavailable || checkoutBlocked
+                        }
                         onClick={() => changeQuantity(product, 1)}
                       >
                         Thêm món <span>＋</span>
@@ -433,10 +735,119 @@ export default function StorefrontPage() {
             </button>
             <span className="store-kicker">HOÀN TẤT ĐƠN HÀNG</span>
             <h2 id="checkout-heading">Thông tin giao hàng</h2>
+            {error && (
+              <p className="store-message store-error" role="alert">
+                {error}
+              </p>
+            )}
+            {notice && (
+              <p className="store-message store-success" role="status">
+                {notice}
+              </p>
+            )}
             {!token ? (
               <p>
                 Vui lòng <Link href="/login">đăng nhập tài khoản khách hàng</Link> để đặt hàng.
               </p>
+            ) : checkoutState.status === "owner-mismatch" ? (
+              <div className="store-checkout-uncertain">
+                <p className="store-message store-warning" role="alert">
+                  Trình duyệt này đang giữ một đơn chưa rõ kết quả thuộc một tài khoản khác. Vì lý
+                  do riêng tư, nội dung đơn không được hiển thị. Hệ thống không cho đặt đơn mới cho
+                  đến khi bạn chủ động hủy bỏ bản ghi đó.
+                </p>
+                {abandonControls(
+                  <>
+                    Đơn chưa rõ kết quả thuộc tài khoản khác có thể đã được tạo thành công. Nếu hủy
+                    bỏ, bản ghi trên trình duyệt này sẽ bị xóa và bạn có thể đặt đơn mới. Hãy kiểm
+                    tra mục{" "}
+                    <Link href="/orders" onClick={() => setShowCheckout(false)}>
+                      Đơn hàng của tôi
+                    </Link>{" "}
+                    của tài khoản liên quan trước khi tiếp tục.
+                  </>,
+                )}
+              </div>
+            ) : checkoutState.status === "invalid" ? (
+              <div className="store-checkout-uncertain">
+                <p className="store-message store-warning" role="alert">
+                  Bản ghi đơn chưa rõ kết quả trên trình duyệt bị hỏng và không thể xác minh nội
+                  dung. Hệ thống không cho đặt đơn mới cho đến khi bạn chủ động xóa bản ghi đó.
+                </p>
+                {abandonControls(
+                  <>
+                    Bản ghi bị hỏng có thể chứa thông tin của một đơn đã gửi trước đó. Nếu xóa bỏ,
+                    bạn có thể đặt đơn mới nhưng hãy kiểm tra mục{" "}
+                    <Link href="/orders" onClick={() => setShowCheckout(false)}>
+                      Đơn hàng của tôi
+                    </Link>{" "}
+                    trước để tránh trùng đơn.
+                  </>,
+                )}
+              </div>
+            ) : checkoutState.status === "unavailable" ? (
+              <p className="store-message store-error" role="alert">
+                Không thể truy cập bộ nhớ cục bộ an toàn nên hệ thống không thể giữ mã chống trùng.
+                Đơn hàng chưa được gửi. Hãy kiểm tra quyền lưu trữ của trình duyệt rồi tải lại
+                trang.
+              </p>
+            ) : checkoutAttempt ? (
+              <div className="store-checkout-uncertain">
+                <p className="store-message store-warning" role="alert">
+                  Đơn hàng trước chưa xác nhận được kết quả. Hệ thống đã giữ nguyên nội dung và mã
+                  chống trùng; không thể đặt giỏ hiện tại cho đến khi bạn thử lại đơn cũ hoặc chủ
+                  động hủy bỏ.
+                </p>
+                <div className="store-checkout-attempt">
+                  <p>
+                    <span>Người nhận</span>
+                    <strong>{checkoutAttempt.payload.recipientName}</strong>
+                  </p>
+                  <p>
+                    <span>Số điện thoại</span>
+                    <strong>{checkoutAttempt.payload.phone}</strong>
+                  </p>
+                  <p>
+                    <span>Địa chỉ</span>
+                    <strong>{checkoutAttempt.payload.shippingAddress}</strong>
+                  </p>
+                  {checkoutAttempt.payload.items.map((item) => {
+                    const product = products.find((candidate) => candidate.id === item.productId);
+                    return (
+                      <p key={item.productId}>
+                        <span>{product?.name ?? `Sản phẩm #${item.productId}`}</span>
+                        <strong>× {item.quantity}</strong>
+                      </p>
+                    );
+                  })}
+                </div>
+                {attemptCartChanged && (
+                  <p className="store-message store-error" role="status">
+                    Giỏ hàng hiện tại đã khác đơn chưa rõ kết quả. Bạn vẫn có thể thử lại đúng đơn
+                    cũ, nhưng phải hủy bỏ đơn đó trước khi đặt giỏ hiện tại.
+                  </p>
+                )}
+                <div className="store-checkout-actions">
+                  <button
+                    className="store-submit-order"
+                    type="button"
+                    disabled={submittingOrder}
+                    onClick={retryCheckoutAttempt}
+                  >
+                    {submittingOrder ? "Đang gửi lại…" : "Thử lại đúng đơn cũ"}
+                  </button>
+                  {abandonControls(
+                    <>
+                      Đơn hàng cũ có thể đã được tạo thành công. Nếu hủy bỏ, hệ thống sẽ cho phép
+                      đặt giỏ hiện tại bằng một mã mới và có thể tạo đơn trùng. Hãy kiểm tra mục{" "}
+                      <Link href="/orders" onClick={() => setShowCheckout(false)}>
+                        Đơn hàng của tôi
+                      </Link>{" "}
+                      trước khi tiếp tục.
+                    </>,
+                  )}
+                </div>
+              </div>
             ) : (
               <>
                 <div className="store-checkout-items">
@@ -466,8 +877,12 @@ export default function StorefrontPage() {
                     Địa chỉ giao hàng
                     <textarea name="shippingAddress" required maxLength={2000} rows={3} />
                   </label>
-                  <button className="store-submit-order" type="submit" disabled={cart.length === 0}>
-                    Xác nhận đặt hàng
+                  <button
+                    className="store-submit-order"
+                    type="submit"
+                    disabled={cart.length === 0 || submittingOrder}
+                  >
+                    {submittingOrder ? "Đang gửi đơn…" : "Xác nhận đặt hàng"}
                   </button>
                 </form>
               </>

@@ -5,7 +5,7 @@ describe("storeApi", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("loads products and uses bearer authentication for customer orders", async () => {
-    const payload = { items: [] };
+    const payload = { items: [], page: 1, pageSize: 20, total: 0 };
     const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => payload });
     vi.stubGlobal("fetch", fetch);
 
@@ -18,7 +18,7 @@ describe("storeApi", () => {
     );
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      "http://localhost:8080/api/v1/orders",
+      "http://localhost:8080/api/v1/orders?page=1&pageSize=20",
       expect.objectContaining({ headers: { Authorization: "Bearer customer-jwt" } }),
     );
   });
@@ -33,6 +33,7 @@ describe("storeApi", () => {
       imageUrl: "",
       priceVnd: 99000,
       stock: 4,
+      categoryIds: [],
     };
     const order = {
       recipientName: "Buyer",
@@ -42,7 +43,7 @@ describe("storeApi", () => {
     };
 
     await storeApi.createProduct("admin-jwt", product);
-    await storeApi.createOrder("customer-jwt", order);
+    await storeApi.createOrder("customer-jwt", order, "6fa459ea-ee8a-4d3a-8f4a-6b8a1e4f9f11");
     await storeApi.adminProducts("admin-jwt");
     await storeApi.adminOrders("admin-jwt");
     await storeApi.dashboard("admin-jwt");
@@ -57,11 +58,66 @@ describe("storeApi", () => {
     );
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/orders",
-      expect.objectContaining({ body: JSON.stringify(order) }),
+      expect.objectContaining({
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer customer-jwt",
+          "Idempotency-Key": "6fa459ea-ee8a-4d3a-8f4a-6b8a1e4f9f11",
+        },
+        body: JSON.stringify(order),
+      }),
     );
     expect(fetch).toHaveBeenCalledWith(
       "http://localhost:8080/api/v1/admin/dashboard",
       expect.anything(),
+    );
+  });
+
+  it("uses paginated order queries and order lifecycle endpoints", async () => {
+    const page = { items: [], page: 2, pageSize: 20, total: 25 };
+    const order = { id: 11, orderNumber: "ORD-11", status: "cancelled", items: [] };
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => page })
+      .mockResolvedValueOnce({ ok: true, json: async () => page })
+      .mockResolvedValueOnce({ ok: true, json: async () => order })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ...order, status: "processing" }) });
+    vi.stubGlobal("fetch", fetch);
+
+    await storeApi.customerOrders("customer-jwt", 2, 20);
+    await storeApi.adminOrders("admin-jwt", 1, 20, { status: "pending", q: "ORD 11" });
+    await storeApi.cancelOrder("customer-jwt", 11);
+    await storeApi.updateOrderStatus("admin-jwt", 11, "processing");
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8080/api/v1/orders?page=2&pageSize=20",
+      expect.objectContaining({ headers: { Authorization: "Bearer customer-jwt" } }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "http://localhost:8080/api/v1/admin/orders?page=1&pageSize=20&status=pending&q=ORD+11",
+      expect.objectContaining({ headers: { Authorization: "Bearer admin-jwt" } }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "http://localhost:8080/api/v1/orders/11/cancel",
+      expect.objectContaining({
+        method: "POST",
+        headers: { Authorization: "Bearer customer-jwt" },
+      }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      4,
+      "http://localhost:8080/api/v1/admin/orders/11/status",
+      expect.objectContaining({
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer admin-jwt",
+        },
+        body: JSON.stringify({ status: "processing" }),
+      }),
     );
   });
 
@@ -74,7 +130,7 @@ describe("storeApi", () => {
         json: async () => ({ error: "Out of stock" }),
       }),
     );
-    await expect(storeApi.products()).rejects.toThrow("Out of stock (409)");
+    await expect(storeApi.products()).rejects.toThrow("Out of stock");
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
