@@ -413,6 +413,53 @@
   margin: 6px 0 0;
   padding-left: 18px;
 }
+.admin-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.admin-order-actions button {
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #fff;
+  padding: 5px 8px;
+  color: #0d6efd;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.admin-order-actions button.danger {
+  border-color: #e3b4ae;
+  color: #b02a37;
+}
+.admin-order-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.admin-order-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+  color: #6c757d;
+  font-size: 11px;
+}
+.admin-order-pagination button {
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #fff;
+  padding: 7px 10px;
+  color: #495057;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.admin-order-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .admin-page-title .admin-toolbar-button {
   border: 1px solid #ced4da;
   border-radius: 4px;

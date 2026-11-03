@@ -38,11 +38,12 @@ export default function AdminCategoriesPage() {
   });
   const categories = data?.categories ?? [];
   const products = data?.products ?? [];
-  const error = queryError instanceof Error
-    ? queryError.message
-    : queryError
-      ? "Không tải được dữ liệu danh mục."
-      : "";
+  const error =
+    queryError instanceof Error
+      ? queryError.message
+      : queryError
+        ? "Không tải được dữ liệu danh mục."
+        : "";
 
   useEffect(() => {
     if (ready && !token) router.replace("/admin/login");
@@ -54,7 +55,8 @@ export default function AdminCategoriesPage() {
       !window.confirm(
         `Xóa danh mục “${category.name}”? Sản phẩm sẽ được giữ lại nhưng bỏ liên kết danh mục này.`,
       )
-    ) return;
+    )
+      return;
     setActionError("");
     setNotice("");
     try {
@@ -74,13 +76,23 @@ export default function AdminCategoriesPage() {
       title="Quản lý danh mục"
       description="Tổ chức thực đơn và gán sản phẩm vào nhiều danh mục."
     >
-      {(error || actionError) && <p className="admin-alert" role="alert">{actionError || error}</p>}
-      {notice && <p className="admin-success" role="status">{notice}</p>}
+      {(error || actionError) && (
+        <p className="admin-alert" role="alert">
+          {actionError || error}
+        </p>
+      )}
+      {notice && (
+        <p className="admin-success" role="status">
+          {notice}
+        </p>
+      )}
       <article className="admin-panel admin-management-list">
         <header>
           <div>
             <h2>Danh mục</h2>
-            <p>{categories.length} danh mục · {products.length} sản phẩm</p>
+            <p>
+              {categories.length} danh mục · {products.length} sản phẩm
+            </p>
           </div>
           <Link href="/admin/categories/create">Thêm danh mục +</Link>
         </header>
@@ -102,14 +114,22 @@ export default function AdminCategoriesPage() {
                 ).length;
                 return (
                   <tr key={category.id}>
-                    <td><strong>{category.name}</strong></td>
-                    <td><code>{category.slug}</code></td>
+                    <td>
+                      <strong>{category.name}</strong>
+                    </td>
+                    <td>
+                      <code>{category.slug}</code>
+                    </td>
                     <td>{count}</td>
                     <td>{category.description || "—"}</td>
                     <td>
                       <div className="admin-row-actions">
                         <Link href={`/admin/categories/${category.id}/edit`}>Sửa</Link>
-                        <button type="button" className="danger" onClick={() => void deleteCategory(category)}>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => void deleteCategory(category)}
+                        >
                           Xóa
                         </button>
                       </div>
@@ -118,10 +138,18 @@ export default function AdminCategoriesPage() {
                 );
               })}
               {!loading && categories.length === 0 && (
-                <tr><td colSpan={5} className="admin-empty">Chưa có danh mục.</td></tr>
+                <tr>
+                  <td colSpan={5} className="admin-empty">
+                    Chưa có danh mục.
+                  </td>
+                </tr>
               )}
               {loading && (
-                <tr><td colSpan={5} className="admin-empty">Đang tải danh mục…</td></tr>
+                <tr>
+                  <td colSpan={5} className="admin-empty">
+                    Đang tải danh mục…
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

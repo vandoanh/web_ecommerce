@@ -125,9 +125,15 @@ export default function EditProductPage() {
     <AdminShell
       active="products"
       title="Sửa sản phẩm"
-      description={product ? `Cập nhật thông tin cho ${product.name}.` : "Cập nhật thông tin sản phẩm."}
+      description={
+        product ? `Cập nhật thông tin cho ${product.name}.` : "Cập nhật thông tin sản phẩm."
+      }
     >
-      {displayedError && <p className="admin-alert" role="alert">{displayedError}</p>}
+      {displayedError && (
+        <p className="admin-alert" role="alert">
+          {displayedError}
+        </p>
+      )}
       {isLoading ? (
         <p className="admin-panel">Đang tải sản phẩm…</p>
       ) : product ? (
@@ -142,23 +148,49 @@ export default function EditProductPage() {
           <form className="admin-management-form" onSubmit={saveProduct}>
             <label>
               Mã SKU *
-              <input value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} required maxLength={64} />
+              <input
+                value={form.sku}
+                onChange={(event) => setForm({ ...form, sku: event.target.value })}
+                required
+                maxLength={64}
+              />
             </label>
             <label>
               Tên sản phẩm *
-              <input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required maxLength={255} />
+              <input
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                required
+                maxLength={255}
+              />
             </label>
             <label>
               Giá bán (₫) *
-              <input type="number" min="1" value={form.priceVnd} onChange={(event) => setForm({ ...form, priceVnd: event.target.value })} required />
+              <input
+                type="number"
+                min="1"
+                value={form.priceVnd}
+                onChange={(event) => setForm({ ...form, priceVnd: event.target.value })}
+                required
+              />
             </label>
             <label>
               Tồn kho *
-              <input type="number" min="0" value={form.stock} onChange={(event) => setForm({ ...form, stock: event.target.value })} required />
+              <input
+                type="number"
+                min="0"
+                value={form.stock}
+                onChange={(event) => setForm({ ...form, stock: event.target.value })}
+                required
+              />
             </label>
             <label className="wide">
               URL ảnh chính (nếu có)
-              <input type="url" value={form.imageUrl} onChange={(event) => setForm({ ...form, imageUrl: event.target.value })} />
+              <input
+                type="url"
+                value={form.imageUrl}
+                onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
+              />
             </label>
             <div className="wide admin-description-field">
               Tải nhiều ảnh sản phẩm
@@ -170,7 +202,7 @@ export default function EditProductPage() {
                     ...current,
                     imageUrls,
                     imageUrl: current.imageUrls.includes(current.imageUrl)
-                      ? imageUrls[0] ?? ""
+                      ? (imageUrls[0] ?? "")
                       : current.imageUrl || imageUrls[0] || "",
                   }))
                 }
@@ -178,7 +210,10 @@ export default function EditProductPage() {
             </div>
             <div className="wide admin-description-field">
               Mô tả
-              <RichTextEditor value={form.description} onChange={(description) => setForm({ ...form, description })} />
+              <RichTextEditor
+                value={form.description}
+                onChange={(description) => setForm({ ...form, description })}
+              />
             </div>
             <fieldset className="wide admin-category-options">
               <legend>Danh mục sản phẩm</legend>
@@ -200,12 +235,18 @@ export default function EditProductPage() {
                 </label>
               ))}
               {categories.length === 0 && (
-                <small>Chưa có danh mục. <Link href="/admin/categories">Tạo danh mục</Link></small>
+                <small>
+                  Chưa có danh mục. <Link href="/admin/categories">Tạo danh mục</Link>
+                </small>
               )}
             </fieldset>
             <div className="admin-form-actions">
-              <button type="submit" disabled={busy}>{busy ? "Đang lưu…" : "Lưu thay đổi"}</button>
-              <Link className="admin-cancel-link" href="/admin/products">Hủy</Link>
+              <button type="submit" disabled={busy}>
+                {busy ? "Đang lưu…" : "Lưu thay đổi"}
+              </button>
+              <Link className="admin-cancel-link" href="/admin/products">
+                Hủy
+              </Link>
             </div>
           </form>
         </article>

@@ -26,8 +26,12 @@ func setupRouter() *gin.Engine {
 			return nil, errors.New("invalid credentials")
 		}
 		switch username {
-		case "customer":
-			return &data.User{ID: 10, Username: username, Roles: []string{"customer"}, Groups: []string{"customers"}}, nil
+		case "customer", "outsider":
+			id := int64(10)
+			if username == "outsider" {
+				id = 11
+			}
+			return &data.User{ID: id, Username: username, Roles: []string{"customer"}, Groups: []string{"customers"}}, nil
 		case "admin":
 			return &data.User{ID: 1, Username: username, Roles: []string{"admin"}, Groups: []string{"administrators"}}, nil
 		default:
@@ -50,11 +54,26 @@ func setupRouter() *gin.Engine {
 		CreateProductFunc: func(_ context.Context, in data.CreateProductInput) (data.Product, error) {
 			return data.Product{ID: 2, SKU: in.SKU, Name: in.Name, PriceVND: in.PriceVND, Stock: in.Stock, IsActive: true}, nil
 		},
-		CreateOrderFunc: func(_ context.Context, userID int64, in data.CreateOrderInput) (data.Order, error) {
-			return data.Order{ID: 3, UserID: userID, OrderNumber: "ORD-1", TotalVND: 2000, Status: "pending"}, nil
+		CreateOrderFunc: func(_ context.Context, userID int64, _ string, in data.CreateOrderInput) (data.Order, bool, error) {
+			return data.Order{ID: 3, UserID: userID, OrderNumber: "ORD-1", TotalVND: 2000, Status: "pending", PaymentMethod: "cod"}, false, nil
 		},
-		ListOrdersFunc: func(_ context.Context, userID int64) ([]data.Order, error) {
-			return []data.Order{{ID: 3, UserID: userID}}, nil
+		ListOrdersFunc: func(_ context.Context, userID int64, page, pageSize int) ([]data.Order, int64, error) {
+			return []data.Order{{ID: 3, UserID: userID, Status: "pending", PaymentMethod: "cod"}}, 1, nil
+		},
+		GetOrderFunc: func(_ context.Context, userID, orderID int64) (data.Order, error) {
+			if userID != 10 {
+				return data.Order{}, repository.ErrOrderNotFound
+			}
+			return data.Order{ID: orderID, UserID: userID, Status: "pending", PaymentMethod: "cod"}, nil
+		},
+		CancelOrderFunc: func(_ context.Context, userID, orderID int64) (data.Order, error) {
+			if userID != 10 {
+				return data.Order{}, repository.ErrOrderNotFound
+			}
+			return data.Order{ID: orderID, UserID: userID, Status: "cancelled", PaymentMethod: "cod"}, nil
+		},
+		UpdateOrderStatusFunc: func(_ context.Context, orderID int64, status string) (data.Order, error) {
+			return data.Order{ID: orderID, Status: status, PaymentMethod: "cod"}, nil
 		},
 		DashboardStatsFunc: func(context.Context) (data.DashboardStats, error) {
 			return data.DashboardStats{ProductCount: 4, OrderCount: 8, PendingOrders: 2, RevenueVND: 42000}, nil
@@ -264,6 +283,269 @@ func TestProtectedStoreRouteRejectsMissingToken(t *testing.T) {
 	setupRouter().ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(`{}`)))
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", response.Code)
+	}
+}
+
+func TestOrderRoutesRequireIdempotencyAndPaginate(t *testing.T) {
+	router := setupRouter()
+	token := login(t, router, "/api/v1/auth/login", "customer")
+	makeRequest := func(key, payload string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(payload))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		if key != "" {
+			request.Header.Set("Idempotency-Key", key)
+		}
+		router.ServeHTTP(response, request)
+		return response
+	}
+	body := `{"recipientName":"A","phone":"123","shippingAddress":"Addr","items":[{"productId":1,"quantity":1}]}`
+	if response := makeRequest("", body); response.Code != http.StatusBadRequest {
+		t.Fatalf("missing key status=%d body=%s", response.Code, response.Body)
+	}
+	if response := makeRequest("bad", body); response.Code != http.StatusBadRequest {
+		t.Fatalf("bad key status=%d body=%s", response.Code, response.Body)
+	}
+	if response := makeRequest("9d77cd79-d774-45d0-a960-566b94069386", `{"recipientName":"A","phone":"123","shippingAddress":"Addr","items":[{"productId":1,"quantity":1},{"productId":1,"quantity":1}]}`); response.Code != http.StatusBadRequest {
+		t.Fatalf("duplicate line status=%d body=%s", response.Code, response.Body)
+	}
+	if response := makeRequest("9d77cd79-d774-45d0-a960-566b94069386", body); response.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", response.Code, response.Body)
+	}
+	page := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/orders?page=2&pageSize=10", nil)
+	request.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	router.ServeHTTP(page, request)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `"page":2`) || !strings.Contains(page.Body.String(), `"total":1`) {
+		t.Fatalf("page status=%d body=%s", page.Code, page.Body)
+	}
+	bad := httptest.NewRecorder()
+	badRequest := httptest.NewRequest(http.MethodGet, "/api/v1/orders?page=0", nil)
+	badRequest.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	router.ServeHTTP(bad, badRequest)
+	if bad.Code != http.StatusBadRequest {
+		t.Fatalf("invalid pagination status=%d body=%s", bad.Code, bad.Body)
+	}
+}
+
+func TestCheckoutReplayReturnsExistingOrder(t *testing.T) {
+	var calls int
+	users := &mock.UserRepositoryMock{FindUserFunc: func(username, password string) (*data.User, error) {
+		if username == "customer" && password == "correct-password" {
+			return &data.User{ID: 10, Username: username, Roles: []string{"customer"}, Groups: []string{"customers"}}, nil
+		}
+		return nil, errors.New("invalid credentials")
+	}}
+	store := &mock.StoreRepositoryMock{CreateOrderFunc: func(_ context.Context, userID int64, _ string, _ data.CreateOrderInput) (data.Order, bool, error) {
+		calls++
+		return data.Order{ID: 3, UserID: userID, OrderNumber: "ORD-1", TotalVND: 2000, Status: "pending", PaymentMethod: "cod"}, calls > 1, nil
+	}}
+	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
+	router := route.SetupRouter(users, store, &mock.CartRepositoryMock{}, &mock.ContactRepositoryMock{}, auth, "http://localhost:3000")
+	token := login(t, router, "/api/v1/auth/login", "customer")
+	body := `{"recipientName":"A","phone":"123","shippingAddress":"Addr","items":[{"productId":1,"quantity":1}]}`
+	makeRequest := func() *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/orders", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Authorization", "Bearer "+token.AccessToken)
+		request.Header.Set("Idempotency-Key", "9d77cd79-d774-45d0-a960-566b94069386")
+		router.ServeHTTP(response, request)
+		return response
+	}
+	if got := makeRequest(); got.Code != http.StatusCreated {
+		t.Fatalf("first checkout status=%d body=%s", got.Code, got.Body)
+	}
+	replay := makeRequest()
+	if replay.Code != http.StatusOK || replay.Header().Get("Idempotency-Replayed") != "true" {
+		t.Fatalf("replay status=%d headers=%v body=%s", replay.Code, replay.Header(), replay.Body)
+	}
+}
+
+func TestOrderDetailCancelAndAdminTransitionsAreRoleProtected(t *testing.T) {
+	router := setupRouter()
+	customer := login(t, router, "/api/v1/auth/login", "customer")
+	admin := login(t, router, "/api/v1/admin/auth/login", "admin")
+	request := func(method, path, token, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		if body != "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		router.ServeHTTP(response, req)
+		return response
+	}
+	if got := request(http.MethodGet, "/api/v1/orders/3", customer.AccessToken, ""); got.Code != http.StatusOK {
+		t.Fatalf("customer detail status=%d body=%s", got.Code, got.Body)
+	}
+	otherTokenRequest := httptest.NewRecorder()
+	otherLogin := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"username":"outsider","password":"correct-password"}`))
+	otherLogin.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(otherTokenRequest, otherLogin)
+	var otherToken data.TokenResponse
+	if err := json.Unmarshal(otherTokenRequest.Body.Bytes(), &otherToken); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(http.MethodGet, "/api/v1/orders/3", otherToken.AccessToken, ""); got.Code != http.StatusNotFound {
+		t.Fatalf("non-owner detail should be 404, got %d", got.Code)
+	}
+	if got := request(http.MethodPost, "/api/v1/orders/3/cancel", customer.AccessToken, ""); got.Code != http.StatusOK {
+		t.Fatalf("customer cancel status=%d body=%s", got.Code, got.Body)
+	}
+	if got := request(http.MethodPost, "/api/v1/orders/3/cancel", otherToken.AccessToken, ""); got.Code != http.StatusNotFound {
+		t.Fatalf("non-owner cancellation should be 404, got %d", got.Code)
+	}
+	if got := request(http.MethodPost, "/api/v1/orders/3/cancel", admin.AccessToken, ""); got.Code != http.StatusForbidden {
+		t.Fatalf("admin must not use customer cancel route, got %d", got.Code)
+	}
+	if got := request(http.MethodGet, "/api/v1/admin/orders?page=0", admin.AccessToken, ""); got.Code != http.StatusBadRequest {
+		t.Fatalf("bad admin pagination expected 400, got %d", got.Code)
+	}
+	if got := request(http.MethodPatch, "/api/v1/admin/orders/3/status", customer.AccessToken, `{"status":"processing"}`); got.Code != http.StatusForbidden {
+		t.Fatalf("customer status update expected 403, got %d", got.Code)
+	}
+	if got := request(http.MethodPatch, "/api/v1/admin/orders/3/status", admin.AccessToken, `{"status":"bogus"}`); got.Code != http.StatusBadRequest {
+		t.Fatalf("invalid status expected 400, got %d", got.Code)
+	}
+	if got := request(http.MethodPatch, "/api/v1/admin/orders/3/status", admin.AccessToken, `{"status":"pending"}`); got.Code != http.StatusBadRequest {
+		t.Fatalf("pending is not a mutation target, got %d", got.Code)
+	}
+	if got := request(http.MethodPatch, "/api/v1/admin/orders/3/status", admin.AccessToken, `{"status":"processing"}`); got.Code != http.StatusOK {
+		t.Fatalf("admin transition status=%d body=%s", got.Code, got.Body)
+	}
+	if got := request(http.MethodPatch, "/api/v1/admin/orders/3/status", admin.AccessToken, `{"status":"cancelled"}`); got.Code != http.StatusOK {
+		t.Fatalf("admin cancellation status=%d body=%s", got.Code, got.Body)
+	}
+}
+
+func TestAdminCanReadOrderDetailButCustomerCannotUseAdminEndpoint(t *testing.T) {
+	var requestedID int64
+	store := &mock.StoreRepositoryMock{GetAdminOrderFunc: func(_ context.Context, orderID int64) (data.Order, error) {
+		requestedID = orderID
+		return data.Order{ID: orderID, OrderNumber: "ORD-DETAIL", RecipientName: "Buyer", Items: []data.OrderItem{{ProductID: 9, ProductName: "Sausage", Quantity: 2, UnitPriceVND: 1000}}}, nil
+	}}
+	users := &mock.UserRepositoryMock{FindUserFunc: func(username, password string) (*data.User, error) {
+		if password != "correct-password" {
+			return nil, errors.New("invalid credentials")
+		}
+		role := username
+		return &data.User{ID: 1, Username: username, Roles: []string{role}}, nil
+	}}
+	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
+	router := route.SetupRouter(users, store, &mock.CartRepositoryMock{}, &mock.ContactRepositoryMock{}, auth, "http://localhost:3000")
+	admin := login(t, router, "/api/v1/admin/auth/login", "admin")
+	customer := login(t, router, "/api/v1/auth/login", "customer")
+	request := func(token string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/orders/42", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		router.ServeHTTP(response, req)
+		return response
+	}
+	response := request(admin.AccessToken)
+	if response.Code != http.StatusOK || requestedID != 42 {
+		t.Fatalf("admin detail status=%d requestedID=%d body=%s", response.Code, requestedID, response.Body)
+	}
+	var order data.Order
+	if err := json.Unmarshal(response.Body.Bytes(), &order); err != nil {
+		t.Fatal(err)
+	}
+	if order.OrderNumber != "ORD-DETAIL" || len(order.Items) != 1 || order.Items[0].ProductID != 9 {
+		t.Fatalf("unexpected order detail payload: %+v", order)
+	}
+	if denied := request(customer.AccessToken); denied.Code != http.StatusForbidden {
+		t.Fatalf("customer must not use admin detail route, got %d", denied.Code)
+	}
+}
+
+func TestAdminOrderFiltersAndValidation(t *testing.T) {
+	var captured data.OrderFilter
+	var capturedPage, capturedPageSize int
+	users := &mock.UserRepositoryMock{FindUserFunc: func(username, password string) (*data.User, error) {
+		if username == "admin" && password == "correct-password" {
+			return &data.User{ID: 1, Username: username, Roles: []string{"admin"}, Groups: []string{"administrators"}}, nil
+		}
+		return nil, errors.New("invalid credentials")
+	}}
+	store := &mock.StoreRepositoryMock{AdminOrdersFilteredFunc: func(_ context.Context, page, pageSize int, filter data.OrderFilter) ([]data.Order, int64, error) {
+		captured, capturedPage, capturedPageSize = filter, page, pageSize
+		return []data.Order{{ID: 3, Status: "pending", PaymentMethod: "cod"}}, 1, nil
+	}}
+	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
+	router := route.SetupRouter(users, store, &mock.CartRepositoryMock{}, &mock.ContactRepositoryMock{}, auth, "http://localhost:3000")
+	admin := login(t, router, "/api/v1/admin/auth/login", "admin")
+	request := func(path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+admin.AccessToken)
+		router.ServeHTTP(response, req)
+		return response
+	}
+	if got := request("/api/v1/admin/orders?status=Pending&q=%20gi%C3%B2%20&page=2&pageSize=15"); got.Code != http.StatusOK {
+		t.Fatalf("filtered orders status=%d body=%s", got.Code, got.Body)
+	}
+	if captured.Status != "pending" || captured.Query != "giò" || capturedPage != 2 || capturedPageSize != 15 {
+		t.Fatalf("unexpected filter: %+v page=%d pageSize=%d", captured, capturedPage, capturedPageSize)
+	}
+	if got := request("/api/v1/admin/orders?status=shipping"); got.Code != http.StatusBadRequest {
+		t.Fatalf("invalid filter status should be 400, got %d body=%s", got.Code, got.Body)
+	}
+	if got := request("/api/v1/admin/orders?q=" + strings.Repeat("x", 101)); got.Code != http.StatusBadRequest {
+		t.Fatalf("oversized search should be 400, got %d", got.Code)
+	}
+}
+
+func TestCORSReflectsSingleConfiguredOrigin(t *testing.T) {
+	router := setupRouter()
+	preflight := func(origin, method string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodOptions, "/api/v1/admin/orders/3/status", nil)
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Access-Control-Request-Method", method)
+		router.ServeHTTP(response, request)
+		return response
+	}
+	allowed := preflight("http://localhost:3000", "PATCH")
+	if allowed.Code != http.StatusNoContent {
+		t.Fatalf("preflight status=%d", allowed.Code)
+	}
+	if allowed.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
+		t.Fatalf("unexpected allow origin: %q", allowed.Header().Get("Access-Control-Allow-Origin"))
+	}
+	if allowed.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("credentials header missing")
+	}
+	if !strings.Contains(allowed.Header().Get("Access-Control-Allow-Methods"), "PATCH") {
+		t.Fatalf("PATCH missing from allowed methods: %q", allowed.Header().Get("Access-Control-Allow-Methods"))
+	}
+	if !strings.Contains(allowed.Header().Get("Access-Control-Allow-Headers"), "Idempotency-Key") {
+		t.Fatalf("Idempotency-Key missing from allowed headers: %q", allowed.Header().Get("Access-Control-Allow-Headers"))
+	}
+	if allowed.Header().Get("Access-Control-Max-Age") != "43200" {
+		t.Fatalf("max age should be seconds: %q", allowed.Header().Get("Access-Control-Max-Age"))
+	}
+	denied := preflight("https://evil.example", "PATCH")
+	if denied.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("disallowed origin must not be reflected: %q", denied.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestCORSAllowsWildcardWithoutCredentials(t *testing.T) {
+	auth := service.NewAuthService("0123456789abcdef0123456789abcdef", time.Hour)
+	router := route.SetupRouter(&mock.UserRepositoryMock{}, &mock.StoreRepositoryMock{}, &mock.CartRepositoryMock{}, &mock.ContactRepositoryMock{}, auth, "*")
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodOptions, "/api/v1/orders", nil)
+	request.Header.Set("Origin", "https://any.example")
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || response.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("wildcard preflight status=%d origin=%q", response.Code, response.Header().Get("Access-Control-Allow-Origin"))
+	}
+	if response.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Fatalf("wildcard CORS must not allow credentials")
 	}
 }
 

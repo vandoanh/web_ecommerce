@@ -7,12 +7,14 @@ type ProductRouteProps = { children: React.ReactNode; params: Promise<{ slug: st
 const apiBase = process.env.API_INTERNAL_URL ?? "http://localhost:8080";
 
 function fallbackTitle(slug: string) {
-  return slug
-    .replace(/-\d+$/, "")
-    .split("-")
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toLocaleUpperCase("vi") + word.slice(1))
-    .join(" ") || "Chi tiết sản phẩm";
+  return (
+    slug
+      .replace(/-\d+$/, "")
+      .split("-")
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toLocaleUpperCase("vi") + word.slice(1))
+      .join(" ") || "Chi tiết sản phẩm"
+  );
 }
 
 export async function generateMetadata({ params }: ProductRouteProps): Promise<Metadata> {

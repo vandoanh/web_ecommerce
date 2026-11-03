@@ -124,7 +124,9 @@ export default function AdminLoginPage() {
             </div>
           </div>
         </div>
-        <SharedFooter className="admin-login-footer">© 2026 Tuấn Khang · Quản trị cửa hàng</SharedFooter>
+        <SharedFooter className="admin-login-footer">
+          © 2026 Tuấn Khang · Quản trị cửa hàng
+        </SharedFooter>
       </section>
     </main>
   );

@@ -11,11 +11,42 @@ type RichTextEditorProps = {
 };
 
 const toolbarItems = [
-  { label: "Đậm", title: "In đậm", action: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.chain().focus().toggleBold().run(), active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("bold") },
-  { label: "Nghiêng", title: "In nghiêng", action: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.chain().focus().toggleItalic().run(), active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("italic") },
-  { label: "H2", title: "Tiêu đề", action: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.chain().focus().toggleHeading({ level: 2 }).run(), active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("heading", { level: 2 }) },
-  { label: "• Danh sách", title: "Danh sách", action: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.chain().focus().toggleBulletList().run(), active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("bulletList") },
-  { label: "1. Danh sách", title: "Danh sách đánh số", action: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.chain().focus().toggleOrderedList().run(), active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("orderedList") },
+  {
+    label: "Đậm",
+    title: "In đậm",
+    action: (editor: NonNullable<ReturnType<typeof useEditor>>) =>
+      editor.chain().focus().toggleBold().run(),
+    active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("bold"),
+  },
+  {
+    label: "Nghiêng",
+    title: "In nghiêng",
+    action: (editor: NonNullable<ReturnType<typeof useEditor>>) =>
+      editor.chain().focus().toggleItalic().run(),
+    active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("italic"),
+  },
+  {
+    label: "H2",
+    title: "Tiêu đề",
+    action: (editor: NonNullable<ReturnType<typeof useEditor>>) =>
+      editor.chain().focus().toggleHeading({ level: 2 }).run(),
+    active: (editor: NonNullable<ReturnType<typeof useEditor>>) =>
+      editor.isActive("heading", { level: 2 }),
+  },
+  {
+    label: "• Danh sách",
+    title: "Danh sách",
+    action: (editor: NonNullable<ReturnType<typeof useEditor>>) =>
+      editor.chain().focus().toggleBulletList().run(),
+    active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("bulletList"),
+  },
+  {
+    label: "1. Danh sách",
+    title: "Danh sách đánh số",
+    action: (editor: NonNullable<ReturnType<typeof useEditor>>) =>
+      editor.chain().focus().toggleOrderedList().run(),
+    active: (editor: NonNullable<ReturnType<typeof useEditor>>) => editor.isActive("orderedList"),
+  },
 ];
 
 export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
@@ -23,7 +54,11 @@ export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
     immediatelyRender: false,
     extensions: [
       StarterKit,
-      Link.configure({ openOnClick: false, autolink: true, protocols: ["http", "https", "mailto"] }),
+      Link.configure({
+        openOnClick: false,
+        autolink: true,
+        protocols: ["http", "https", "mailto"],
+      }),
     ],
     content: value,
     editorProps: {
@@ -44,25 +79,29 @@ export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
   return (
     <div className="admin-rich-text-editor">
       <div className="admin-rich-text-toolbar" aria-label="Định dạng mô tả">
-        {editor && toolbarItems.map((item) => (
-          <button
-            key={item.label}
-            type="button"
-            title={item.title}
-            aria-pressed={item.active(editor)}
-            className={item.active(editor) ? "active" : ""}
-            onClick={() => item.action(editor)}
-          >
-            {item.label}
-          </button>
-        ))}
+        {editor &&
+          toolbarItems.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              title={item.title}
+              aria-pressed={item.active(editor)}
+              className={item.active(editor) ? "active" : ""}
+              onClick={() => item.action(editor)}
+            >
+              {item.label}
+            </button>
+          ))}
         <button
           type="button"
           title="Thêm hoặc sửa liên kết"
           onClick={() => {
             if (!editor) return;
             const current = editor.getAttributes("link").href as string | undefined;
-            const address = window.prompt("Nhập địa chỉ liên kết (http/https):", current ?? "https://");
+            const address = window.prompt(
+              "Nhập địa chỉ liên kết (http/https):",
+              current ?? "https://",
+            );
             if (address === null) return;
             const trimmed = address.trim();
             if (!trimmed) editor.chain().focus().unsetLink().run();

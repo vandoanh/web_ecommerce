@@ -95,7 +95,12 @@ export default function ProductDetailPage() {
 
   return (
     <main className="store-page store-product-detail-page">
-      <SharedHeader className="store-home-header store-detail-header" brandClassName="store-home-brand" logoClassName="store-home-logo" brandSize={72}>
+      <SharedHeader
+        className="store-home-header store-detail-header"
+        brandClassName="store-home-brand"
+        logoClassName="store-home-logo"
+        brandSize={72}
+      >
         <ClientMenu />
         <Link className="store-home-cart" href="/">
           <span aria-hidden="true">♧</span> Giỏ hàng <b>{cartCount}</b>
@@ -119,56 +124,62 @@ export default function ProductDetailPage() {
         ) : product ? (
           <section className="store-product-detail">
             <div className="store-product-detail-gallery">
-            <div className="store-product-detail-image">
-              <Image
-                src={productImages[activeImage] ?? product.imageUrl}
-                alt={product.name}
-                width={1000}
-                height={1000}
-                unoptimized
-                priority
-              />
-              <span>
-                {product.name.toLowerCase().includes("pa-tê") ? "PA-TÊ" : "ĐẶC SẢN TUẤN KHANG"}
-              </span>
-              {productImages.length > 1 && (
-                <>
-                  <button
-                    className="store-gallery-arrow previous"
-                    type="button"
-                    aria-label="Ảnh trước"
-                    onClick={() => setActiveImage((index) => (index - 1 + productImages.length) % productImages.length)}
-                  >
-                    ‹
-                  </button>
-                  <button
-                    className="store-gallery-arrow next"
-                    type="button"
-                    aria-label="Ảnh tiếp theo"
-                    onClick={() => setActiveImage((index) => (index + 1) % productImages.length)}
-                  >
-                    ›
-                  </button>
-                  <span className="store-gallery-count">{activeImage + 1} / {productImages.length}</span>
-                </>
-              )}
-            </div>
-            {productImages.length > 1 && (
-              <div className="store-product-thumbnails" aria-label="Ảnh sản phẩm">
-                {productImages.map((image, index) => (
-                  <button
-                    key={`${image}-${index}`}
-                    type="button"
-                    aria-label={`Xem ảnh ${index + 1}`}
-                    aria-pressed={activeImage === index}
-                    className={activeImage === index ? "active" : ""}
-                    onClick={() => setActiveImage(index)}
-                  >
-                    <Image src={image} alt="" width={100} height={80} unoptimized />
-                  </button>
-                ))}
+              <div className="store-product-detail-image">
+                <Image
+                  src={productImages[activeImage] ?? product.imageUrl}
+                  alt={product.name}
+                  width={1000}
+                  height={1000}
+                  unoptimized
+                  priority
+                />
+                <span>
+                  {product.name.toLowerCase().includes("pa-tê") ? "PA-TÊ" : "ĐẶC SẢN TUẤN KHANG"}
+                </span>
+                {productImages.length > 1 && (
+                  <>
+                    <button
+                      className="store-gallery-arrow previous"
+                      type="button"
+                      aria-label="Ảnh trước"
+                      onClick={() =>
+                        setActiveImage(
+                          (index) => (index - 1 + productImages.length) % productImages.length,
+                        )
+                      }
+                    >
+                      ‹
+                    </button>
+                    <button
+                      className="store-gallery-arrow next"
+                      type="button"
+                      aria-label="Ảnh tiếp theo"
+                      onClick={() => setActiveImage((index) => (index + 1) % productImages.length)}
+                    >
+                      ›
+                    </button>
+                    <span className="store-gallery-count">
+                      {activeImage + 1} / {productImages.length}
+                    </span>
+                  </>
+                )}
               </div>
-            )}
+              {productImages.length > 1 && (
+                <div className="store-product-thumbnails" aria-label="Ảnh sản phẩm">
+                  {productImages.map((image, index) => (
+                    <button
+                      key={`${image}-${index}`}
+                      type="button"
+                      aria-label={`Xem ảnh ${index + 1}`}
+                      aria-pressed={activeImage === index}
+                      className={activeImage === index ? "active" : ""}
+                      onClick={() => setActiveImage(index)}
+                    >
+                      <Image src={image} alt="" width={100} height={80} unoptimized />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="store-product-detail-copy">
               <span className="store-kicker">MÓN NGON MỖI NGÀY</span>
@@ -188,7 +199,9 @@ export default function ProductDetailPage() {
               {product.description ? (
                 <SafeHtml className="store-product-detail-description" html={product.description} />
               ) : (
-                <p className="store-product-detail-description">Món ngon truyền thống, thích hợp cho bữa cơm gia đình.</p>
+                <p className="store-product-detail-description">
+                  Món ngon truyền thống, thích hợp cho bữa cơm gia đình.
+                </p>
               )}
               <div className="store-product-detail-quantity">
                 <span>Số lượng</span>

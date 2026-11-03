@@ -7,7 +7,12 @@ type PageMetadataInput = {
   noIndex?: boolean;
 };
 
-export function createPageMetadata({ title, description, path, noIndex }: PageMetadataInput): Metadata {
+export function createPageMetadata({
+  title,
+  description,
+  path,
+  noIndex,
+}: PageMetadataInput): Metadata {
   return {
     title,
     description,

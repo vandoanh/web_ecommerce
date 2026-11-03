@@ -2,9 +2,13 @@ package controller
 
 import (
 	"errors"
-	"os"
+	"math"
 	"net/http"
+	"os"
+	"regexp"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/example/youtube-dashboard-go-next/backend/controller/repository"
 	"github.com/example/youtube-dashboard-go-next/backend/data"
@@ -126,31 +130,212 @@ func (c *StoreController) CreateOrder(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid recipient, address and order items are required"})
 		return
 	}
-	userID, ok := ctx.Get("user_id")
+	userID, ok := authenticatedUserID(ctx)
 	if !ok {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "sign in is required"})
 		return
 	}
-	order, err := c.store.CreateOrder(ctx.Request.Context(), userID.(int64), input)
+	key, ok := validIdempotencyKey(ctx.GetHeader("Idempotency-Key"))
+	if !ok {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Idempotency-Key must be a UUID"})
+		return
+	}
+	seen := make(map[int64]struct{}, len(input.Items))
+	for _, item := range input.Items {
+		if _, exists := seen[item.ProductID]; exists {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "duplicate product IDs are not allowed"})
+			return
+		}
+		seen[item.ProductID] = struct{}{}
+	}
+	order, replayed, err := c.store.CreateOrder(ctx.Request.Context(), userID, key, input)
 	if err != nil {
-		ctx.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, repository.ErrDuplicateOrderProduct), errors.Is(err, repository.ErrInvalidOrderInput):
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case errors.Is(err, repository.ErrIdempotencyConflict), errors.Is(err, repository.ErrProductUnavailable):
+			ctx.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		default:
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not create order"})
+		}
+		return
+	}
+	if replayed {
+		ctx.Header("Idempotency-Replayed", "true")
+		ctx.JSON(http.StatusOK, order)
 		return
 	}
 	ctx.JSON(http.StatusCreated, order)
 }
 
-func (c *StoreController) CustomerOrders(ctx *gin.Context) {
-	userID, ok := ctx.Get("user_id")
-	if !ok {
+var idempotencyKeyPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func validIdempotencyKey(value string) (string, bool) {
+	key := strings.TrimSpace(value)
+	return strings.ToLower(key), idempotencyKeyPattern.MatchString(key)
+}
+
+func authenticatedUserID(ctx *gin.Context) (int64, bool) {
+	value, exists := ctx.Get("user_id")
+	userID, ok := value.(int64)
+	if !exists || !ok || userID < 1 {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "sign in is required"})
+		return 0, false
+	}
+	return userID, true
+}
+
+func (c *StoreController) CustomerOrders(ctx *gin.Context) {
+	userID, ok := authenticatedUserID(ctx)
+	if !ok {
 		return
 	}
-	orders, err := c.store.ListOrders(ctx.Request.Context(), userID.(int64))
+	page, pageSize, ok := orderPagination(ctx)
+	if !ok {
+		return
+	}
+	orders, total, err := c.store.ListOrders(ctx.Request.Context(), userID, page, pageSize)
 	if err != nil {
+		if errors.Is(err, repository.ErrInvalidOrderInput) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid pagination"})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not load orders"})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"items": orders})
+	ctx.JSON(http.StatusOK, data.OrderPage{Items: orders, Page: page, PageSize: pageSize, Total: total})
+}
+
+func (c *StoreController) CustomerOrder(ctx *gin.Context) {
+	userID, ok := authenticatedUserID(ctx)
+	if !ok {
+		return
+	}
+	orderID, ok := parsePositiveID(ctx, "orderID")
+	if !ok {
+		return
+	}
+	order, err := c.store.GetOrder(ctx.Request.Context(), userID, orderID)
+	if errors.Is(err, repository.ErrOrderNotFound) {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+		return
+	}
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not load order"})
+		return
+	}
+	ctx.JSON(http.StatusOK, order)
+}
+
+func (c *StoreController) CancelCustomerOrder(ctx *gin.Context) {
+	userID, ok := authenticatedUserID(ctx)
+	if !ok {
+		return
+	}
+	orderID, ok := parsePositiveID(ctx, "orderID")
+	if !ok {
+		return
+	}
+	order, err := c.store.CancelOrder(ctx.Request.Context(), userID, orderID)
+	if errors.Is(err, repository.ErrOrderNotFound) {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+		return
+	}
+	if errors.Is(err, repository.ErrInvalidOrderTransition) {
+		ctx.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not cancel order"})
+		return
+	}
+	ctx.JSON(http.StatusOK, order)
+}
+
+func (c *StoreController) UpdateAdminOrderStatus(ctx *gin.Context) {
+	orderID, ok := parsePositiveID(ctx, "orderID")
+	if !ok {
+		return
+	}
+	var input data.UpdateOrderStatusInput
+	if err := ctx.ShouldBindJSON(&input); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid status is required"})
+		return
+	}
+	status := data.NormalizeOrderStatus(input.Status)
+	if !data.IsOrderMutationStatus(status) {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid status is required"})
+		return
+	}
+	order, err := c.store.UpdateOrderStatus(ctx.Request.Context(), orderID, status)
+	if errors.Is(err, repository.ErrOrderNotFound) {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+		return
+	}
+	if errors.Is(err, repository.ErrInvalidOrderTransition) {
+		ctx.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not update order"})
+		return
+	}
+	ctx.JSON(http.StatusOK, order)
+}
+
+func (c *StoreController) AdminOrder(ctx *gin.Context) {
+	orderID, ok := parsePositiveID(ctx, "orderID")
+	if !ok {
+		return
+	}
+	order, err := c.store.GetAdminOrder(ctx.Request.Context(), orderID)
+	if errors.Is(err, repository.ErrOrderNotFound) {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+		return
+	}
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not load order"})
+		return
+	}
+	ctx.JSON(http.StatusOK, order)
+}
+
+func orderPagination(ctx *gin.Context) (int, int, bool) {
+	page, err := strconv.Atoi(ctx.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "page must be a positive integer"})
+		return 0, 0, false
+	}
+	pageSize, err := strconv.Atoi(ctx.DefaultQuery("pageSize", "20"))
+	if err != nil || pageSize < 1 || pageSize > 100 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "pageSize must be between 1 and 100"})
+		return 0, 0, false
+	}
+	if page > math.MaxInt/pageSize {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "page is too large"})
+		return 0, 0, false
+	}
+	return page, pageSize, true
+}
+
+func adminOrderFilter(ctx *gin.Context) (data.OrderFilter, bool) {
+	filter := data.OrderFilter{}
+	status := data.NormalizeOrderStatus(ctx.Query("status"))
+	if status == "all" {
+		status = ""
+	}
+	if status != "" {
+		if !data.IsValidOrderStatus(status) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "valid status is required"})
+			return data.OrderFilter{}, false
+		}
+		filter.Status = status
+	}
+	filter.Query = strings.TrimSpace(ctx.Query("q"))
+	if utf8.RuneCountInString(filter.Query) > 100 {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "search query is too long"})
+		return data.OrderFilter{}, false
+	}
+	return filter, true
 }
 
 func (c *StoreController) AdminProducts(ctx *gin.Context) {
@@ -214,12 +399,24 @@ func (c *StoreController) DeleteProduct(ctx *gin.Context) {
 }
 
 func (c *StoreController) AdminOrders(ctx *gin.Context) {
-	orders, err := c.store.ListOrders(ctx.Request.Context(), 0)
+	page, pageSize, ok := orderPagination(ctx)
+	if !ok {
+		return
+	}
+	filter, ok := adminOrderFilter(ctx)
+	if !ok {
+		return
+	}
+	orders, total, err := c.store.AdminOrdersFiltered(ctx.Request.Context(), page, pageSize, filter)
 	if err != nil {
+		if errors.Is(err, repository.ErrInvalidOrderStatus) || errors.Is(err, repository.ErrInvalidOrderInput) {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid order filter or pagination"})
+			return
+		}
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "could not load orders"})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"items": orders})
+	ctx.JSON(http.StatusOK, data.OrderPage{Items: orders, Page: page, PageSize: pageSize, Total: total})
 }
 
 func (c *StoreController) DashboardStats(ctx *gin.Context) {

@@ -36,11 +36,12 @@ export default function AdminProductsPage() {
       return (await storeApi.adminProducts(token)).items;
     },
   });
-  const error = queryError instanceof Error
-    ? queryError.message
-    : queryError
-      ? "Không tải được danh sách sản phẩm."
-      : "";
+  const error =
+    queryError instanceof Error
+      ? queryError.message
+      : queryError
+        ? "Không tải được danh sách sản phẩm."
+        : "";
 
   useEffect(() => {
     if (ready && !token) router.replace("/admin/login");
@@ -67,8 +68,16 @@ export default function AdminProductsPage() {
       title="Quản lý sản phẩm"
       description="Tạo, cập nhật, phân loại và xóa sản phẩm."
     >
-      {(error || actionError) && <p className="admin-alert" role="alert">{actionError || error}</p>}
-      {notice && <p className="admin-success" role="status">{notice}</p>}
+      {(error || actionError) && (
+        <p className="admin-alert" role="alert">
+          {actionError || error}
+        </p>
+      )}
+      {notice && (
+        <p className="admin-success" role="status">
+          {notice}
+        </p>
+      )}
       <article className="admin-panel admin-management-list">
         <header>
           <div>
@@ -112,7 +121,11 @@ export default function AdminProductsPage() {
                   <td>
                     <div className="admin-row-actions">
                       <Link href={`/admin/products/${product.id}/edit`}>Sửa</Link>
-                      <button type="button" className="danger" onClick={() => void deleteProduct(product)}>
+                      <button
+                        type="button"
+                        className="danger"
+                        onClick={() => void deleteProduct(product)}
+                      >
                         Xóa
                       </button>
                     </div>
@@ -120,10 +133,18 @@ export default function AdminProductsPage() {
                 </tr>
               ))}
               {!loading && products.length === 0 && (
-                <tr><td colSpan={5} className="admin-empty">Chưa có sản phẩm.</td></tr>
+                <tr>
+                  <td colSpan={5} className="admin-empty">
+                    Chưa có sản phẩm.
+                  </td>
+                </tr>
               )}
               {loading && (
-                <tr><td colSpan={5} className="admin-empty">Đang tải sản phẩm…</td></tr>
+                <tr>
+                  <td colSpan={5} className="admin-empty">
+                    Đang tải sản phẩm…
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

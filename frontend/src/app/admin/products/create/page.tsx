@@ -51,9 +51,12 @@ export default function CreateProductPage() {
 
   useEffect(() => {
     if (!token) return;
-    storeApi.categories().then(({ items }) => setCategories(items)).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : "Không tải được danh mục sản phẩm.");
-    });
+    storeApi
+      .categories()
+      .then(({ items }) => setCategories(items))
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : "Không tải được danh mục sản phẩm.");
+      });
   }, [token]);
 
   async function createProduct(event: FormEvent<HTMLFormElement>) {
@@ -90,8 +93,16 @@ export default function CreateProductPage() {
       title="Thêm sản phẩm"
       description="Nhập thông tin và phân loại mặt hàng mới."
     >
-      {error && <p className="admin-alert" role="alert">{error}</p>}
-      {notice && <p className="admin-success" role="status">{notice}</p>}
+      {error && (
+        <p className="admin-alert" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="admin-success" role="status">
+          {notice}
+        </p>
+      )}
       <article className="admin-panel admin-product-editor">
         <header>
           <div>
@@ -157,7 +168,7 @@ export default function CreateProductPage() {
                   ...current,
                   imageUrls,
                   imageUrl: current.imageUrls.includes(current.imageUrl)
-                    ? imageUrls[0] ?? ""
+                    ? (imageUrls[0] ?? "")
                     : current.imageUrl || imageUrls[0] || "",
                 }))
               }
